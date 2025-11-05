@@ -69,9 +69,13 @@ impl MuxerContext {
 
 /// Create a muxer for the given format
 pub fn create_muxer(format: &str) -> Result<Box<dyn Muxer>> {
-    // For now, return an error - we'll implement specific muxers later
-    Err(Error::unsupported(format!(
-        "No muxer available for format: {}",
-        format
-    )))
+    use super::wav::WavMuxer;
+
+    match format {
+        "wav" => Ok(Box::new(WavMuxer::new())),
+        _ => Err(Error::unsupported(format!(
+            "No muxer available for format: {}",
+            format
+        ))),
+    }
 }

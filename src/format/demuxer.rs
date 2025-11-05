@@ -72,9 +72,31 @@ impl DemuxerContext {
 
 /// Create a demuxer for the given file
 pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
-    // For now, return an error - we'll implement specific demuxers later
-    Err(Error::unsupported(format!(
-        "No demuxer available for file: {}",
-        path.display()
-    )))
+    use super::detect_format_from_extension;
+    use super::wav::WavDemuxer;
+
+    // Detect format from extension
+    let path_str = path.to_str().ok_or_else(|| {
+        Error::invalid_input("Invalid file path")
+    })?;
+
+    let format = detect_format_from_extension(path_str).ok_or_else(|| {
+        Error::unsupported(format!(
+            "Cannot detect format for file: {}",
+            path.display()
+        ))
+    })?;
+
+    // Create demuxer based on format
+    match format {
+        "wav" => {
+            let mut demuxer = WavDemuxer::new();
+            demuxer.open(path)?;
+            Ok(Box::new(demuxer))
+        }
+        _ => Err(Error::unsupported(format!(
+            "No demuxer available for format: {}",
+            format
+        ))),
+    }
 }

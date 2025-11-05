@@ -7,13 +7,14 @@ pub mod demuxer;
 pub mod muxer;
 pub mod packet;
 pub mod stream;
+pub mod wav;
 
 pub use demuxer::{Demuxer, DemuxerContext};
 pub use muxer::{Muxer, MuxerContext};
 pub use packet::Packet;
-pub use stream::{Stream, StreamInfo};
+pub use stream::{AudioInfo, Stream, StreamInfo, VideoInfo};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::util::MediaType;
 
 /// Format capability flags
@@ -86,6 +87,18 @@ pub fn get_format_info(name: &str) -> Option<FormatInfo> {
             capabilities: FormatCapabilities {
                 seekable: true,
                 multi_stream: true,
+                timestamps: true,
+                metadata: true,
+            },
+        }),
+        "wav" => Some(FormatInfo {
+            name: "wav".to_string(),
+            long_name: "WAV / WAVE (Waveform Audio)".to_string(),
+            extensions: vec!["wav".to_string()],
+            mime_types: vec!["audio/wav".to_string(), "audio/wave".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: false,
                 timestamps: true,
                 metadata: true,
             },
