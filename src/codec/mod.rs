@@ -3,10 +3,12 @@
 pub mod decoder;
 pub mod encoder;
 pub mod frame;
+pub mod pcm;
 
 pub use decoder::{Decoder, DecoderContext};
 pub use encoder::{Encoder, EncoderContext};
-pub use frame::{Frame, VideoFrame, AudioFrame};
+pub use frame::{AudioFrame, Frame, VideoFrame};
+pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
 
 use crate::error::Result;
 use crate::util::MediaType;
@@ -126,6 +128,20 @@ pub fn get_codec_info(id: &str) -> Option<CodecInfo> {
                 inter: false,
             },
         }),
+        "pcm" | "pcm_u8" | "pcm_s16le" | "pcm_s32le" | "pcm_f32le" | "pcm_f64le" => {
+            Some(CodecInfo {
+                id: "pcm".to_string(),
+                name: "PCM".to_string(),
+                long_name: "Pulse Code Modulation (uncompressed)".to_string(),
+                media_type: MediaType::Audio,
+                capabilities: CodecCapabilities {
+                    lossy: false,
+                    lossless: true,
+                    intra_only: true,
+                    inter: false,
+                },
+            })
+        }
         _ => None,
     }
 }

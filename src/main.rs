@@ -171,9 +171,75 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn cmd_info(input: &PathBuf) -> anyhow::Result<()> {
+    use zvd_lib::format::demuxer::create_demuxer;
+
     println!("File: {}", input.display());
-    println!("\nNote: Full media info functionality not yet implemented.");
-    println!("This is a placeholder that will be expanded with actual demuxer integration.");
+    println!();
+
+    // Try to open the file
+    let demuxer = match create_demuxer(input) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error opening file: {}", e);
+            return Err(anyhow::anyhow!("Failed to open file"));
+        }
+    };
+
+    // Get streams
+    let streams = demuxer.streams();
+
+    if streams.is_empty() {
+        println!("No streams found in file");
+        return Ok(());
+    }
+
+    // Display stream information
+    println!("Streams: {}", streams.len());
+    println!();
+
+    for stream in streams {
+        println!("Stream #{}:", stream.info.index);
+        println!("  Type: {}", stream.info.media_type);
+        println!("  Codec: {}", stream.info.codec_id);
+        println!("  Time Base: {}", stream.info.time_base);
+
+        if let Some(duration) = stream.info.nb_frames {
+            println!("  Frames: {}", duration);
+            println!(
+                "  Duration: {:.2}s",
+                stream.info.duration_seconds()
+            );
+        }
+
+        // Audio-specific info
+        if let Some(ref audio) = stream.info.audio_info {
+            println!("  Sample Rate: {} Hz", audio.sample_rate);
+            println!("  Channels: {}", audio.channels);
+            println!("  Sample Format: {}", audio.sample_fmt);
+            println!("  Bits Per Sample: {}", audio.bits_per_sample);
+            if let Some(bitrate) = audio.bit_rate {
+                println!("  Bit Rate: {} kbps", bitrate / 1000);
+            }
+        }
+
+        // Video-specific info
+        if let Some(ref video) = stream.info.video_info {
+            println!("  Resolution: {}x{}", video.width, video.height);
+            println!("  Frame Rate: {}", video.frame_rate);
+            println!("  Pixel Format: {}", video.pix_fmt);
+        }
+
+        // Metadata
+        if !stream.info.metadata.is_empty() {
+            println!("  Metadata:");
+            for (key, value) in &stream.info.metadata {
+                println!("    {}: {}", key, value);
+            }
+        }
+
+        println!();
+    }
+
     Ok(())
 }
 
@@ -223,7 +289,7 @@ fn cmd_codecs(filter: Option<&str>) -> anyhow::Result<()> {
     println!("{:<10} {:<8} {:<30}", "ID", "Type", "Description");
     println!("─────────────────────────────────────────────────────────");
 
-    let codecs = vec!["h264", "h265", "vp8", "vp9", "aac", "mp3", "opus"];
+    let codecs = vec!["h264", "h265", "vp8", "vp9", "aac", "mp3", "opus", "pcm"];
 
     for codec_id in codecs {
         if let Some(info) = get_codec_info(codec_id) {
@@ -260,7 +326,7 @@ fn cmd_formats(muxers: bool, demuxers: bool) -> anyhow::Result<()> {
     }
 
     if show_both || demuxers {
-        let formats = vec!["mp4", "matroska"];
+        let formats = vec!["mp4", "matroska", "wav"];
         for fmt in formats {
             if let Some(info) = get_format_info(fmt) {
                 println!("{:<15} {}", info.name, info.long_name);
@@ -275,7 +341,7 @@ fn cmd_formats(muxers: bool, demuxers: bool) -> anyhow::Result<()> {
     if show_both || muxers {
         println!("Muxers (Output Formats):");
         println!("─────────────────────────────────────────────────────────");
-        let formats = vec!["mp4", "matroska"];
+        let formats = vec!["mp4", "matroska", "wav"];
         for fmt in formats {
             if let Some(info) = get_format_info(fmt) {
                 println!("{:<15} {}", info.name, info.long_name);
