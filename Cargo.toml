@@ -1,0 +1,77 @@
+[package]
+name = "zvd"
+version = "0.1.0"
+edition = "2021"
+authors = ["ZVD Contributors"]
+description = "FFMPEG reimplemented in Rust - A multimedia processing library and CLI tool"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ZachHandley/ZVD"
+keywords = ["multimedia", "video", "audio", "codec", "ffmpeg"]
+categories = ["multimedia", "command-line-utilities"]
+
+[[bin]]
+name = "zvd"
+path = "src/main.rs"
+
+[lib]
+name = "zvd_lib"
+path = "src/lib.rs"
+
+[dependencies]
+# CLI and argument parsing
+clap = { version = "4.5", features = ["derive", "cargo"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Video/Audio processing foundations
+bytes = "1.7"
+bitstream-io = "2.5"
+
+# Math and DSP
+ndarray = "0.16"
+rustfft = "6.2"
+
+# Image processing
+image = "0.25"
+
+# Audio sample manipulation
+dasp = "0.11"
+hound = "3.5"  # WAV support
+
+# Color space conversions
+rgb = "0.8"
+
+# Parallel processing
+rayon = "1.10"
+
+# Memory management
+parking_lot = "0.12"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.5"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+
+[profile.bench]
+inherits = "release"
