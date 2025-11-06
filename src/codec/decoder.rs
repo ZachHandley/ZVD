@@ -65,6 +65,24 @@ pub fn create_decoder(codec_id: &str) -> Result<Box<dyn Decoder>> {
             // Default to stereo 44.1kHz, should be configured based on stream info
             Ok(Box::new(AacDecoder::new(44100, 2)?))
         }
+        #[cfg(feature = "opus-codec")]
+        "opus" => {
+            use crate::codec::OpusDecoder;
+            // Default to stereo 48kHz (Opus standard)
+            Ok(Box::new(OpusDecoder::new(48000, 2)?))
+        }
+        "vorbis" => {
+            use crate::codec::VorbisDecoder;
+            Ok(Box::new(VorbisDecoder::new(44100, 2)?))
+        }
+        "flac" => {
+            use crate::codec::FlacDecoder;
+            Ok(Box::new(FlacDecoder::new(44100, 2)?))
+        }
+        "mp3" => {
+            use crate::codec::Mp3Decoder;
+            Ok(Box::new(Mp3Decoder::new(44100, 2)?))
+        }
         _ => Err(Error::unsupported(format!(
             "No decoder available for codec: {}",
             codec_id

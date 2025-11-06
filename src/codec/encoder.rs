@@ -59,7 +59,7 @@ impl EncoderContext {
     }
 }
 
-/// Create an encoder for the given codec with dimensions
+/// Create a video encoder for the given codec with dimensions
 pub fn create_encoder(codec_id: &str, width: u32, height: u32) -> Result<Box<dyn Encoder>> {
     match codec_id {
         "av1" => {
@@ -73,6 +73,21 @@ pub fn create_encoder(codec_id: &str, width: u32, height: u32) -> Result<Box<dyn
         }
         _ => Err(Error::unsupported(format!(
             "No encoder available for codec: {}",
+            codec_id
+        ))),
+    }
+}
+
+/// Create an audio encoder for the given codec
+pub fn create_audio_encoder(codec_id: &str, sample_rate: u32, channels: u16) -> Result<Box<dyn Encoder>> {
+    match codec_id {
+        #[cfg(feature = "opus-codec")]
+        "opus" => {
+            use crate::codec::OpusEncoder;
+            Ok(Box::new(OpusEncoder::new(sample_rate, channels)?))
+        }
+        _ => Err(Error::unsupported(format!(
+            "No audio encoder available for codec: {}",
             codec_id
         ))),
     }

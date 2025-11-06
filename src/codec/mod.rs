@@ -6,11 +6,20 @@ pub mod encoder;
 pub mod frame;
 pub mod pcm;
 
+// Patent-encumbered codecs (behind feature flags)
 #[cfg(feature = "h264")]
 pub mod h264;
 
 #[cfg(feature = "aac")]
 pub mod aac;
+
+// Patent-free audio codecs
+#[cfg(feature = "opus-codec")]
+pub mod opus;
+
+pub mod vorbis;
+pub mod flac;
+pub mod mp3;
 
 pub use av1::{Av1Decoder, Av1Encoder};
 pub use decoder::{Decoder, DecoderContext};
@@ -23,6 +32,13 @@ pub use h264::{H264Decoder, H264Encoder};
 
 #[cfg(feature = "aac")]
 pub use aac::AacDecoder;
+
+#[cfg(feature = "opus-codec")]
+pub use opus::{OpusDecoder, OpusEncoder};
+
+pub use vorbis::VorbisDecoder;
+pub use flac::FlacDecoder;
+pub use mp3::Mp3Decoder;
 
 use crate::error::Result;
 use crate::util::MediaType;
@@ -150,6 +166,30 @@ pub fn get_codec_info(id: &str) -> Option<CodecInfo> {
             capabilities: CodecCapabilities {
                 lossy: true,
                 lossless: false,
+                intra_only: true,
+                inter: false,
+            },
+        }),
+        "vorbis" => Some(CodecInfo {
+            id: "vorbis".to_string(),
+            name: "Vorbis".to_string(),
+            long_name: "Ogg Vorbis".to_string(),
+            media_type: MediaType::Audio,
+            capabilities: CodecCapabilities {
+                lossy: true,
+                lossless: false,
+                intra_only: true,
+                inter: false,
+            },
+        }),
+        "flac" => Some(CodecInfo {
+            id: "flac".to_string(),
+            name: "FLAC".to_string(),
+            long_name: "Free Lossless Audio Codec".to_string(),
+            media_type: MediaType::Audio,
+            capabilities: CodecCapabilities {
+                lossy: false,
+                lossless: true,
                 intra_only: true,
                 inter: false,
             },
