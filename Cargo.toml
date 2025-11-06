@@ -67,6 +67,10 @@ y4m = "0.8"
 # Requires system libdav1d >= 1.3.0
 dav1d = "0.10"
 
+# AV1 encoder - rav1e (BSD-2-Clause)
+# Pure Rust AV1 encoder
+rav1e = "0.7"
+
 # Color space conversions
 rgb = "0.8"
 

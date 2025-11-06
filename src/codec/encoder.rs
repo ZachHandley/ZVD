@@ -59,10 +59,16 @@ impl EncoderContext {
     }
 }
 
-/// Create an encoder for the given codec
-pub fn create_encoder(codec_id: &str) -> Result<Box<dyn Encoder>> {
-    Err(Error::unsupported(format!(
-        "No encoder available for codec: {}",
-        codec_id
-    )))
+/// Create an encoder for the given codec with dimensions
+pub fn create_encoder(codec_id: &str, width: u32, height: u32) -> Result<Box<dyn Encoder>> {
+    match codec_id {
+        "av1" => {
+            use crate::codec::Av1Encoder;
+            Ok(Box::new(Av1Encoder::new(width, height)?))
+        }
+        _ => Err(Error::unsupported(format!(
+            "No encoder available for codec: {}",
+            codec_id
+        ))),
+    }
 }

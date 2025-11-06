@@ -6,7 +6,7 @@ pub mod encoder;
 pub mod frame;
 pub mod pcm;
 
-pub use av1::Av1Decoder;
+pub use av1::{Av1Decoder, Av1Encoder};
 pub use decoder::{Decoder, DecoderContext};
 pub use encoder::{Encoder, EncoderContext};
 pub use frame::{AudioFrame, Frame, PictureType, VideoFrame};
