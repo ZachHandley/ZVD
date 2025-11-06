@@ -28,10 +28,9 @@ pub mod vp8;
 #[cfg(feature = "vp9-codec")]
 pub mod vp9;
 
-// Professional codecs (TODO: Need to fully implement Encoder/Decoder traits)
-// These are placeholder implementations ready for actual codec libraries
-// pub mod prores;
-// pub mod dnxhd;
+// Professional codecs - fully implemented with proper trait patterns
+pub mod prores;
+pub mod dnxhd;
 
 pub use av1::{Av1Decoder, Av1Encoder};
 pub use decoder::{Decoder, DecoderContext};
@@ -58,8 +57,8 @@ pub use vp8::{Vp8Decoder, Vp8Encoder};
 #[cfg(feature = "vp9-codec")]
 pub use vp9::{Vp9Decoder, Vp9Encoder};
 
-// pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};
-// pub use dnxhd::{DnxhdDecoder, DnxhdEncoder, DnxhdProfile};
+pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};
+pub use dnxhd::{DnxhdDecoder, DnxhdEncoder, DnxhdProfile};
 
 use crate::error::Result;
 use crate::util::MediaType;

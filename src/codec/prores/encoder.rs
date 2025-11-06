@@ -140,8 +140,8 @@ impl Encoder for ProResEncoder {
         // Create packet
         let data = Buffer::from_vec(encoded_data);
         let mut packet = Packet::new(0, data);
-        packet.pts = video_frame.timestamp;
-        packet.dts = video_frame.timestamp;
+        packet.pts = video_frame.pts;
+        packet.dts = video_frame.pts;
         packet.set_keyframe(true); // ProRes frames are typically all keyframes
 
         self.pending_packet = Some(packet);
@@ -184,7 +184,8 @@ mod tests {
     #[test]
     fn test_prores_encode_frame() {
         let mut encoder = ProResEncoder::new(1920, 1080, ProResProfile::Standard).unwrap();
-        let frame = VideoFrame::new(1920, 1080, PixelFormat::Yuv420p, Timestamp::new(0));
+        let mut frame = VideoFrame::new(1920, 1080, PixelFormat::YUV420P);
+        frame.pts = Timestamp::new(0);
 
         let send_result = encoder.send_frame(&Frame::Video(frame));
         assert!(send_result.is_ok());

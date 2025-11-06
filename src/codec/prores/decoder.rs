@@ -107,19 +107,20 @@ impl ProResDecoder {
 
         // For now, create an empty frame with correct dimensions
         let pixel_format = if header.alpha_info != 0 {
-            PixelFormat::Yuva420p
+            PixelFormat::YUV444P  // Use 4:4:4 for alpha (no YUVA format available)
         } else if header.chroma_format == 3 {
-            PixelFormat::Yuv444p
+            PixelFormat::YUV444P
         } else {
-            PixelFormat::Yuv422p
+            PixelFormat::YUV422P
         };
 
-        Ok(VideoFrame::new(
+        let mut frame = VideoFrame::new(
             self.width,
             self.height,
             pixel_format,
-            Timestamp::new(0),
-        ))
+        );
+        frame.pts = Timestamp::new(0);
+        Ok(frame)
     }
 }
 
@@ -132,15 +133,16 @@ impl Default for ProResDecoder {
 impl Decoder for ProResDecoder {
     fn send_packet(&mut self, packet: &Packet) -> Result<()> {
         // Parse frame header
-        let header = self.parse_frame_header(&packet.data)?;
+        let header = self.parse_frame_header(packet.data.as_slice())?;
 
         // Decode frame data
+        let data_slice = packet.data.as_slice();
         let mut video_frame = self.decode_frame_data(
-            &packet.data[header.header_size as usize..],
+            &data_slice[header.header_size as usize..],
             &header,
         )?;
 
-        video_frame.timestamp = packet.pts;
+        video_frame.pts = packet.pts;
 
         self.pending_frame = Some(Frame::Video(video_frame));
 

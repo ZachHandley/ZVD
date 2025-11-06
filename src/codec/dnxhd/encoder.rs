@@ -12,6 +12,7 @@ pub struct DnxhdEncoder {
     width: u32,
     height: u32,
     frame_count: u64,
+    pending_packet: Option<Packet>,
 }
 
 impl DnxhdEncoder {
@@ -35,6 +36,7 @@ impl DnxhdEncoder {
             width,
             height,
             frame_count: 0,
+            pending_packet: None,
         })
     }
 
@@ -86,7 +88,7 @@ impl DnxhdEncoder {
     }
 
     /// Encode frame data (placeholder)
-    fn encode_frame_data(&self, frame: &VideoFrame) -> Result<Vec<u8>> {
+    fn encode_frame_data(&self, _frame: &VideoFrame) -> Result<Vec<u8>> {
         // Placeholder - actual DNxHD encoding involves:
         // - Block-based DCT transformation
         // - Quantization based on profile
@@ -113,11 +115,13 @@ impl DnxhdEncoder {
 }
 
 impl Encoder for DnxhdEncoder {
-    type Frame = VideoFrame;
-    type Config = ();
+    fn send_frame(&mut self, frame: &Frame) -> Result<()> {
+        let video_frame = match frame {
+            Frame::Video(vf) => vf,
+            Frame::Audio(_) => return Err(Error::codec("DNxHD encoder only accepts video frames")),
+        };
 
-    fn encode(&mut self, frame: &Self::Frame) -> Result<EncodedPacket> {
-        if frame.width() != self.width || frame.height() != self.height {
+        if video_frame.width != self.width || video_frame.height != self.height {
             return Err(Error::invalid_input("Frame dimensions don't match encoder"));
         }
 
@@ -125,26 +129,28 @@ impl Encoder for DnxhdEncoder {
         let mut encoded_data = self.encode_frame_header();
 
         // Encode frame data
-        let frame_data = self.encode_frame_data(frame)?;
+        let frame_data = self.encode_frame_data(video_frame)?;
         encoded_data.extend_from_slice(&frame_data);
 
-        let pts = frame.timestamp();
+        // Create packet
+        let data = Buffer::from_vec(encoded_data);
+        let mut packet = Packet::new(0, data);
+        packet.pts = video_frame.pts;
+        packet.dts = video_frame.pts;
+        packet.set_keyframe(true); // DNxHD frames are typically all intra-coded
+
+        self.pending_packet = Some(packet);
         self.frame_count += 1;
 
-        Ok(EncodedPacket {
-            data: Buffer::from_vec(encoded_data),
-            pts,
-            dts: pts,
-            is_keyframe: true, // DNxHD frames are typically all intra-coded
-        })
+        Ok(())
     }
 
-    fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
+    fn receive_packet(&mut self) -> Result<Packet> {
+        self.pending_packet.take().ok_or_else(|| Error::TryAgain)
+    }
+
+    fn flush(&mut self) -> Result<()> {
         // DNxHD has no delayed frames
-        Ok(Vec::new())
-    }
-
-    fn configure(&mut self, _config: Self::Config) -> Result<()> {
         Ok(())
     }
 }
@@ -180,13 +186,17 @@ mod tests {
     #[test]
     fn test_dnxhd_encode_frame() {
         let mut encoder = DnxhdEncoder::new(1920, 1080, DnxhdProfile::DnxhrHq).unwrap();
-        let frame = VideoFrame::new(1920, 1080, PixelFormat::Yuv422p, 0);
+        let mut frame = VideoFrame::new(1920, 1080, PixelFormat::YUV422P);
+        frame.pts = Timestamp::new(0);
 
-        let result = encoder.encode(&frame);
-        assert!(result.is_ok());
+        let send_result = encoder.send_frame(&Frame::Video(frame));
+        assert!(send_result.is_ok());
 
-        let packet = result.unwrap();
+        let packet_result = encoder.receive_packet();
+        assert!(packet_result.is_ok());
+
+        let packet = packet_result.unwrap();
         assert!(packet.data.len() > 0);
-        assert!(packet.is_keyframe);
+        assert!(packet.is_keyframe());
     }
 }

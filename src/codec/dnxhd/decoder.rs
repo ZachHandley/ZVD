@@ -1,15 +1,17 @@
 //! DNxHD decoder implementation
 
 use super::{DnxhdProfile, DnxhdFrameHeader};
-use crate::codec::Decoder;
+use crate::codec::{Decoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
-use crate::format::{Buffer, PixelFormat, VideoFrame};
+use crate::format::Packet;
+use crate::util::{Buffer, PixelFormat, Timestamp};
 
 /// DNxHD video decoder
 pub struct DnxhdDecoder {
     width: u32,
     height: u32,
     profile: Option<DnxhdProfile>,
+    pending_frame: Option<Frame>,
 }
 
 impl DnxhdDecoder {
@@ -19,6 +21,7 @@ impl DnxhdDecoder {
             width: 0,
             height: 0,
             profile: None,
+            pending_frame: None,
         }
     }
 
@@ -63,7 +66,7 @@ impl DnxhdDecoder {
     }
 
     /// Decode frame data (placeholder)
-    fn decode_frame_data(&self, data: &[u8], header: &DnxhdFrameHeader) -> Result<VideoFrame> {
+    fn decode_frame_data(&self, _data: &[u8], header: &DnxhdFrameHeader) -> Result<VideoFrame> {
         // Placeholder - actual DNxHD decoding involves:
         // - Variable-length decoding
         // - Inverse quantization
@@ -75,24 +78,25 @@ impl DnxhdDecoder {
         // For now, create an empty frame with correct dimensions
         let pixel_format = if header.is_422 {
             if header.bit_depth == 10 {
-                PixelFormat::Yuv422p10le
+                PixelFormat::YUV422P10LE
             } else {
-                PixelFormat::Yuv422p
+                PixelFormat::YUV422P
             }
         } else {
             if header.bit_depth == 10 {
-                PixelFormat::Yuv444p10le
+                PixelFormat::YUV444P10LE
             } else {
-                PixelFormat::Yuv444p
+                PixelFormat::YUV444P
             }
         };
 
-        Ok(VideoFrame::new(
+        let mut frame = VideoFrame::new(
             self.width,
             self.height,
             pixel_format,
-            0,
-        ))
+        );
+        frame.pts = Timestamp::new(0);
+        Ok(frame)
     }
 }
 
@@ -103,23 +107,28 @@ impl Default for DnxhdDecoder {
 }
 
 impl Decoder for DnxhdDecoder {
-    type Frame = VideoFrame;
-
-    fn decode(&mut self, data: &[u8], timestamp: i64) -> Result<Self::Frame> {
+    fn send_packet(&mut self, packet: &Packet) -> Result<()> {
         // Parse frame header
-        let header = self.parse_frame_header(data)?;
+        let header = self.parse_frame_header(packet.data.as_slice())?;
 
         // Decode frame data (skip header)
-        let mut frame = self.decode_frame_data(&data[16..], &header)?;
+        let data_slice = packet.data.as_slice();
+        let mut video_frame = self.decode_frame_data(&data_slice[16..], &header)?;
 
-        frame.set_timestamp(timestamp);
+        video_frame.pts = packet.pts;
 
-        Ok(frame)
+        self.pending_frame = Some(Frame::Video(video_frame));
+
+        Ok(())
     }
 
-    fn flush(&mut self) -> Result<Vec<Self::Frame>> {
+    fn receive_frame(&mut self) -> Result<Frame> {
+        self.pending_frame.take().ok_or_else(|| Error::TryAgain)
+    }
+
+    fn flush(&mut self) -> Result<()> {
         // DNxHD has no delayed frames
-        Ok(Vec::new())
+        Ok(())
     }
 }
 
