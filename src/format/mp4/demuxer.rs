@@ -261,7 +261,12 @@ impl Demuxer for Mp4Demuxer {
     }
 
     fn seek(&mut self, _stream_index: usize, _timestamp: i64) -> Result<()> {
-        // TODO: Implement seeking
+        // Seeking in MP4 requires:
+        // 1. Converting timestamp to timescale units for the specific track
+        // 2. Binary search through the sample table to find the closest keyframe
+        // 3. Updating track_samples iterators to start from that position
+        // 4. Handling stss (sync sample table) for keyframe locations
+        // This would leverage the mp4 crate's sample iteration capabilities
         Err(Error::format("Seeking not yet implemented for MP4"))
     }
 

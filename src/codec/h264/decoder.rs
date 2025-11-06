@@ -3,8 +3,8 @@
 use crate::codec::{Decoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, PixelFormat, Timestamp};
-use openh264::decoder::{Decoder as OpenH264Decoder, DecoderConfig};
+use crate::util::Timestamp;
+use openh264::decoder::Decoder as OpenH264Decoder;
 
 /// H.264 decoder wrapping OpenH264
 pub struct H264Decoder {

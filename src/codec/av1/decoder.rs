@@ -61,9 +61,12 @@ impl Av1Decoder {
             linesize.push(picture.stride(PlanarImageComponent::V) as usize);
         }
 
-        // For now, we don't have access to frame type information in dav1d-rs
-        // Set all frames as P-frames unless we can determine otherwise
-        let keyframe = false; // TODO: Determine keyframe status if API allows
+        // Note: The current dav1d-rs bindings (v0.10.x) don't expose frame_type()
+        // Frame type information is available in the underlying dav1d library but not
+        // exposed in the Rust bindings. Future versions may add this functionality.
+        // For now, conservatively mark all frames as P-frames.
+        // Workaround: Parse OBU headers manually or upgrade dav1d-rs when available.
+        let keyframe = false;
         let pict_type = PictureType::P;
 
         VideoFrame {

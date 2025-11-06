@@ -1,6 +1,6 @@
 //! FLAC audio decoder using Symphonia
 
-use crate::codec::{AudioFrame, Decoder, Frame};
+use crate::codec::{Decoder, Frame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
 

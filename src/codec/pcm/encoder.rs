@@ -4,7 +4,7 @@ use super::PcmConfig;
 use crate::codec::{Encoder, Frame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, SampleFormat};
+use crate::util::Buffer;
 
 /// PCM encoder
 pub struct PcmEncoder {
@@ -130,7 +130,7 @@ impl PcmEncoder {
 mod tests {
     use super::*;
     use crate::codec::AudioFrame;
-    use crate::util::Timestamp;
+    use crate::util::{SampleFormat, Timestamp};
 
     #[test]
     fn test_pcm_encoder_u8() {

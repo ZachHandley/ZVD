@@ -3,7 +3,7 @@
 use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, PixelFormat, Timestamp};
+use crate::util::{Buffer, PixelFormat};
 
 /// VP8 encoder configuration
 pub struct Vp8EncoderConfig {

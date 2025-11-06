@@ -3,7 +3,7 @@
 use crate::codec::{AudioFrame, Encoder, Frame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, Timestamp};
+use crate::util::Buffer;
 use opus::{Application, Channels, Encoder as OpusEncoderLib};
 
 /// Opus encoder configuration

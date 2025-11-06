@@ -3,7 +3,7 @@
 use crate::codec::{AudioFrame, Decoder, Frame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, SampleFormat, Timestamp};
+use crate::util::Timestamp;
 
 /// AAC decoder wrapping Symphonia's AAC codec
 pub struct AacDecoder {

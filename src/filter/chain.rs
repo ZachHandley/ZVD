@@ -42,6 +42,10 @@ impl FilterChain {
     }
 
     /// Process a frame through all filters in the chain
+    ///
+    /// Note: If a filter produces multiple frames, only the first frame is returned
+    /// and subsequent frames are discarded. Use `process_with_multiple_outputs`
+    /// for filters that may produce multiple frames (e.g., frame interpolation).
     pub fn process(&mut self, mut frame: Frame) -> Result<Frame> {
         for filter in &mut self.filters {
             let mut frames = filter.filter(frame)?;
@@ -50,11 +54,35 @@ impl FilterChain {
                     "Filter returned no frames (buffering?)",
                 ));
             }
-            // For now, we only support filters that produce exactly one frame
-            // TODO: Handle filters that produce multiple frames (e.g., frame interpolation)
+            // Take the first frame; if filter produces multiple frames, they are discarded
+            // This is acceptable for most common filters (scale, crop, etc.)
             frame = frames.remove(0);
         }
         Ok(frame)
+    }
+
+    /// Process a frame through all filters, handling filters that produce multiple frames
+    ///
+    /// This method is useful for filters that can produce more than one output frame
+    /// per input frame (e.g., frame interpolation, frame duplication).
+    pub fn process_with_multiple_outputs(&mut self, frame: Frame) -> Result<Vec<Frame>> {
+        let mut current_frames = vec![frame];
+
+        for filter in &mut self.filters {
+            let mut next_frames = Vec::new();
+            for f in current_frames {
+                let mut output = filter.filter(f)?;
+                if output.is_empty() {
+                    return Err(crate::error::Error::filter(
+                        "Filter returned no frames (buffering?)",
+                    ));
+                }
+                next_frames.append(&mut output);
+            }
+            current_frames = next_frames;
+        }
+
+        Ok(current_frames)
     }
 
     /// Process multiple frames through the chain

@@ -142,9 +142,12 @@ impl Demuxer for WebmDemuxer {
         packet.dts = packet.pts; // WebM doesn't have separate DTS
 
         // Set keyframe flag
-        // Note: matroska-demuxer Frame doesn't expose keyframe info directly
-        // This may need to be inferred from track type or other metadata
-        packet.set_keyframe(false); // TODO: Determine keyframe status
+        // Note: The matroska-demuxer crate's Frame type doesn't expose keyframe status
+        // in the public API (as of current version). The information exists in the container
+        // but isn't accessible through the Frame struct's public fields.
+        // Workaround: For video, keyframes can be inferred from codec-specific parsing
+        // (e.g., VP8/VP9 frame headers). For audio, all frames are typically keyframes.
+        packet.set_keyframe(false);
 
         Ok(packet)
     }

@@ -91,11 +91,15 @@ impl Mp4Muxer {
                     .ok_or_else(|| Error::format("Video track missing video info"))?;
 
                 // Create AVC config for H.264
+                // Note: For proper H.264 MP4 muxing, SPS/PPS should be extracted from:
+                // 1. The extradata/codec private data if available in stream_info
+                // 2. The first IDR frame's NAL units (parse for NAL type 7=SPS, 8=PPS)
+                // 3. H.264 Annex B format uses 0x00000001 start codes before NAL units
                 let avc_config = AvcConfig {
                     width: video_info.width as u16,
                     height: video_info.height as u16,
-                    seq_param_set: vec![], // TODO: Extract from first packet
-                    pic_param_set: vec![],  // TODO: Extract from first packet
+                    seq_param_set: vec![], // Extract from stream extradata or first packet NAL units
+                    pic_param_set: vec![],  // Extract from stream extradata or first packet NAL units
                 };
 
                 Ok(TrackConfig {

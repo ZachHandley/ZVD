@@ -4,7 +4,7 @@ use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
 use crate::util::{PixelFormat, Timestamp};
-use openh264::encoder::{Encoder as OpenH264Encoder, EncoderConfig};
+use openh264::encoder::Encoder as OpenH264Encoder;
 use openh264::formats::YUVBuffer;
 
 /// H.264 encoder wrapping OpenH264
