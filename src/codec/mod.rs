@@ -1,13 +1,15 @@
 //! Codec implementations (encoders and decoders)
 
+pub mod av1;
 pub mod decoder;
 pub mod encoder;
 pub mod frame;
 pub mod pcm;
 
+pub use av1::Av1Decoder;
 pub use decoder::{Decoder, DecoderContext};
 pub use encoder::{Encoder, EncoderContext};
-pub use frame::{AudioFrame, Frame, VideoFrame};
+pub use frame::{AudioFrame, Frame, PictureType, VideoFrame};
 pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
 
 use crate::error::Result;
@@ -88,6 +90,18 @@ pub fn get_codec_info(id: &str) -> Option<CodecInfo> {
             capabilities: CodecCapabilities {
                 lossy: true,
                 lossless: false,
+                intra_only: false,
+                inter: true,
+            },
+        }),
+        "av1" => Some(CodecInfo {
+            id: "av1".to_string(),
+            name: "AV1".to_string(),
+            long_name: "AOMedia Video 1".to_string(),
+            media_type: MediaType::Video,
+            capabilities: CodecCapabilities {
+                lossy: true,
+                lossless: true,
                 intra_only: false,
                 inter: true,
             },

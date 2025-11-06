@@ -63,6 +63,10 @@ symphonia = { version = "0.5", features = [
 # Y4M - YUV4MPEG2 raw video format (MIT)
 y4m = "0.8"
 
+# AV1 decoder - dav1d bindings (MIT)
+# Requires system libdav1d >= 1.3.0
+dav1d = "0.10"
+
 # Color space conversions
 rgb = "0.8"
 

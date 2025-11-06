@@ -41,6 +41,10 @@ pub enum Error {
     #[error("End of stream")]
     EndOfStream,
 
+    /// Try again later
+    #[error("Try again")]
+    TryAgain,
+
     /// Buffer too small
     #[error("Buffer too small: need {need}, have {have}")]
     BufferTooSmall { need: usize, have: usize },

@@ -49,8 +49,14 @@ impl DecoderContext {
 
 /// Create a decoder for the given codec
 pub fn create_decoder(codec_id: &str) -> Result<Box<dyn Decoder>> {
-    Err(Error::unsupported(format!(
-        "No decoder available for codec: {}",
-        codec_id
-    )))
+    match codec_id {
+        "av1" => {
+            use crate::codec::Av1Decoder;
+            Ok(Box::new(Av1Decoder::new()?))
+        }
+        _ => Err(Error::unsupported(format!(
+            "No decoder available for codec: {}",
+            codec_id
+        ))),
+    }
 }
