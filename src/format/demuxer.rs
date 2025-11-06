@@ -73,6 +73,7 @@ impl DemuxerContext {
 /// Create a demuxer for the given file
 pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
     use super::detect_format_from_extension;
+    use super::symphonia_adapter::SymphoniaDemuxer;
     use super::wav::WavDemuxer;
 
     // Detect format from extension
@@ -91,6 +92,12 @@ pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
     match format {
         "wav" => {
             let mut demuxer = WavDemuxer::new();
+            demuxer.open(path)?;
+            Ok(Box::new(demuxer))
+        }
+        "flac" | "ogg" | "mp3" => {
+            // Use Symphonia for these formats
+            let mut demuxer = SymphoniaDemuxer::new(format);
             demuxer.open(path)?;
             Ok(Box::new(demuxer))
         }

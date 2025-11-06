@@ -7,6 +7,7 @@ pub mod demuxer;
 pub mod muxer;
 pub mod packet;
 pub mod stream;
+pub mod symphonia_adapter;
 pub mod wav;
 
 pub use demuxer::{Demuxer, DemuxerContext};
@@ -60,6 +61,7 @@ pub fn detect_format_from_extension(path: &str) -> Option<&'static str> {
         "ogg" | "oga" => Some("ogg"),
         "wav" => Some("wav"),
         "flac" => Some("flac"),
+        "opus" => Some("opus"),
         _ => None,
     }
 }
@@ -96,6 +98,42 @@ pub fn get_format_info(name: &str) -> Option<FormatInfo> {
             long_name: "WAV / WAVE (Waveform Audio)".to_string(),
             extensions: vec!["wav".to_string()],
             mime_types: vec!["audio/wav".to_string(), "audio/wave".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: false,
+                timestamps: true,
+                metadata: true,
+            },
+        }),
+        "flac" => Some(FormatInfo {
+            name: "flac".to_string(),
+            long_name: "FLAC (Free Lossless Audio Codec)".to_string(),
+            extensions: vec!["flac".to_string()],
+            mime_types: vec!["audio/flac".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: false,
+                timestamps: true,
+                metadata: true,
+            },
+        }),
+        "ogg" => Some(FormatInfo {
+            name: "ogg".to_string(),
+            long_name: "OGG container".to_string(),
+            extensions: vec!["ogg".to_string(), "oga".to_string()],
+            mime_types: vec!["audio/ogg".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: true,
+                timestamps: true,
+                metadata: true,
+            },
+        }),
+        "mp3" => Some(FormatInfo {
+            name: "mp3".to_string(),
+            long_name: "MP3 (MPEG Audio Layer 3)".to_string(),
+            extensions: vec!["mp3".to_string()],
+            mime_types: vec!["audio/mpeg".to_string()],
             capabilities: FormatCapabilities {
                 seekable: true,
                 multi_stream: false,
