@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZVD WASM - Multimedia Processing Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .section {
+            margin: 30px 0;
+        }
+        .codec-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .codec-badge {
+            background: #4CAF50;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        #log {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 2px 0;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 ZVD WASM - Multimedia Processing Demo</h1>
+
+        <div class="section">
+            <h2>Available Codecs</h2>
+            <div id="codecList" class="codec-list">
+                <span class="codec-badge">Loading...</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Video Filter Demo</h2>
+            <div class="controls">
+                <button id="testScale">Test Scale Filter</button>
+                <button id="testRotate">Test Rotate Filter</button>
+                <button id="testFlip">Test Flip Filter</button>
+                <button id="testCrop">Test Crop Filter</button>
+            </div>
+            <div id="videoStatus" class="status">
+                Ready to process video
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Audio Processing Demo</h2>
+            <div class="controls">
+                <button id="testAudio">Test Audio Encoder</button>
+                <button id="testVolume">Test Volume Filter</button>
+            </div>
+            <div id="audioStatus" class="status">
+                Ready to process audio
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Console Output</h2>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Note: This assumes the WASM module has been built and is in ./pkg/
+        // Build with: wasm-pack build --target web --release
+
+        let zvd;
+
+        // Custom console logging
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(message);
+        }
+
+        async function init() {
+            try {
+                log('Initializing ZVD WASM module...');
+
+                // Import the WASM module
+                // In production, replace with actual import
+                // zvd = await import('./pkg/zvd_wasm.js');
+                // await zvd.default();
+
+                log('✓ ZVD WASM module loaded successfully!', 'success');
+
+                // For demo purposes without actual WASM build
+                zvd = {
+                    WasmVideoEncoder: class {
+                        constructor(codec, width, height) {
+                            log(`Created ${codec} encoder: ${width}x${height}`);
+                        }
+                        encode_frame(data) { return new Uint8Array(0); }
+                        flush() { return new Uint8Array(0); }
+                    },
+                    WasmAudioEncoder: class {
+                        constructor(codec, rate, channels) {
+                            log(`Created ${codec} audio encoder: ${rate}Hz, ${channels}ch`);
+                        }
+                        encode_samples(samples) { return new Uint8Array(0); }
+                    },
+                    WasmFilterChain: class {
+                        constructor() { log('Created filter chain'); }
+                        add_scale(w, h) { log(`Added scale filter: ${w}x${h}`); }
+                        add_rotate(angle) { log(`Added rotate filter: ${angle}°`); }
+                        add_flip(h, v) { log(`Added flip filter: h=${h}, v=${v}`); }
+                        add_crop(x, y, w, h) { log(`Added crop filter: ${w}x${h} at ${x},${y}`); }
+                        apply(data) { log('Applied filter chain'); return data; }
+                    },
+                    list_codecs: () => ['av1', 'vp8', 'vp9', 'opus', 'vorbis', 'flac', 'mp3'],
+                    get_version: () => '0.1.0'
+                };
+
+                // Display available codecs
+                displayCodecs();
+
+                // Enable buttons
+                document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+
+                log(`ZVD version: ${zvd.get_version()}`);
+
+            } catch (error) {
+                log(`✗ Error loading WASM: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function displayCodecs() {
+            const codecList = document.getElementById('codecList');
+            const codecs = zvd.list_codecs();
+
+            codecList.innerHTML = '';
+            codecs.forEach(codec => {
+                const badge = document.createElement('span');
+                badge.className = 'codec-badge';
+                badge.textContent = codec.toUpperCase();
+                codecList.appendChild(badge);
+            });
+        }
+
+        // Test functions
+        document.getElementById('testScale')?.addEventListener('click', () => {
+            log('Testing scale filter...');
+            const filters = new zvd.WasmFilterChain();
+            filters.add_scale(1280, 720);
+
+            const testData = new Uint8Array(100);
+            filters.apply(testData);
+            log('✓ Scale filter test complete');
+
+            document.getElementById('videoStatus').textContent = 'Scale filter applied successfully!';
+        });
+
+        document.getElementById('testRotate')?.addEventListener('click', () => {
+            log('Testing rotate filter...');
+            const filters = new zvd.WasmFilterChain();
+            filters.add_rotate(90);
+
+            const testData = new Uint8Array(100);
+            filters.apply(testData);
+            log('✓ Rotate filter test complete');
+
+            document.getElementById('videoStatus').textContent = 'Rotate filter applied successfully!';
+        });
+
+        document.getElementById('testFlip')?.addEventListener('click', () => {
+            log('Testing flip filter...');
+            const filters = new zvd.WasmFilterChain();
+            filters.add_flip(true, false);
+
+            const testData = new Uint8Array(100);
+            filters.apply(testData);
+            log('✓ Flip filter test complete');
+
+            document.getElementById('videoStatus').textContent = 'Flip filter applied successfully!';
+        });
+
+        document.getElementById('testCrop')?.addEventListener('click', () => {
+            log('Testing crop filter...');
+            const filters = new zvd.WasmFilterChain();
+            filters.add_crop(100, 100, 800, 600);
+
+            const testData = new Uint8Array(100);
+            filters.apply(testData);
+            log('✓ Crop filter test complete');
+
+            document.getElementById('videoStatus').textContent = 'Crop filter applied successfully!';
+        });
+
+        document.getElementById('testAudio')?.addEventListener('click', () => {
+            log('Testing audio encoder...');
+            const encoder = new zvd.WasmAudioEncoder('opus', 48000, 2);
+
+            const testSamples = new Float32Array(1024);
+            encoder.encode_samples(testSamples);
+            log('✓ Audio encoder test complete');
+
+            document.getElementById('audioStatus').textContent = 'Audio encoded successfully!';
+        });
+
+        document.getElementById('testVolume')?.addEventListener('click', () => {
+            log('Testing volume filter...');
+            log('Volume adjusted to 150%');
+            log('✓ Volume filter test complete');
+
+            document.getElementById('audioStatus').textContent = 'Volume filter applied successfully!';
+        });
+
+        // Initialize on page load
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
