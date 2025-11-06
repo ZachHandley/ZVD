@@ -9,6 +9,7 @@ pub mod packet;
 pub mod stream;
 pub mod symphonia_adapter;
 pub mod wav;
+pub mod webm;
 pub mod y4m;
 
 pub use demuxer::{Demuxer, DemuxerContext};
@@ -153,6 +154,18 @@ pub fn get_format_info(name: &str) -> Option<FormatInfo> {
                 multi_stream: false,
                 timestamps: true,
                 metadata: false,
+            },
+        }),
+        "webm" => Some(FormatInfo {
+            name: "webm".to_string(),
+            long_name: "WebM".to_string(),
+            extensions: vec!["webm".to_string()],
+            mime_types: vec!["video/webm".to_string(), "audio/webm".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: true,
+                timestamps: true,
+                metadata: true,
             },
         }),
         _ => None,

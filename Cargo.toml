@@ -71,6 +71,9 @@ dav1d = "0.10"
 # Pure Rust AV1 encoder
 rav1e = "0.7"
 
+# WebM/Matroska demuxer (MIT)
+matroska-demuxer = "0.6"
+
 # Color space conversions
 rgb = "0.8"
 

@@ -75,6 +75,7 @@ pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
     use super::detect_format_from_extension;
     use super::symphonia_adapter::SymphoniaDemuxer;
     use super::wav::WavDemuxer;
+    use super::webm::WebmDemuxer;
     use super::y4m::Y4mDemuxer;
 
     // Detect format from extension
@@ -104,6 +105,11 @@ pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
         }
         "y4m" => {
             let mut demuxer = Y4mDemuxer::new();
+            demuxer.open(path)?;
+            Ok(Box::new(demuxer))
+        }
+        "webm" | "matroska" => {
+            let mut demuxer = WebmDemuxer::new();
             demuxer.open(path)?;
             Ok(Box::new(demuxer))
         }
