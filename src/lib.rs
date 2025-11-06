@@ -13,11 +13,17 @@
 //! - `util`: Common utilities and data structures
 //! - `swscale`: Video scaling and color space conversion
 //! - `swresample`: Audio resampling and format conversion
+//! - `hwaccel`: Hardware acceleration support
+//! - `streaming`: Streaming protocol support (RTMP, HLS, DASH, etc.)
+//! - `subtitle`: Subtitle format support (SRT, WebVTT, ASS/SSA)
 
 pub mod codec;
 pub mod error;
 pub mod filter;
 pub mod format;
+pub mod hwaccel;
+pub mod streaming;
+pub mod subtitle;
 pub mod swresample;
 pub mod swscale;
 pub mod util;

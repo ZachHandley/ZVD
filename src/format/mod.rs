@@ -3,7 +3,10 @@
 //! This module provides functionality for reading and writing various
 //! multimedia container formats.
 
+pub mod avi;
 pub mod demuxer;
+pub mod flv;
+pub mod mpegts;
 pub mod muxer;
 pub mod packet;
 pub mod stream;
@@ -169,6 +172,42 @@ pub fn get_format_info(name: &str) -> Option<FormatInfo> {
                 multi_stream: true,
                 timestamps: true,
                 metadata: true,
+            },
+        }),
+        "avi" => Some(FormatInfo {
+            name: "avi".to_string(),
+            long_name: "AVI (Audio Video Interleave)".to_string(),
+            extensions: vec!["avi".to_string()],
+            mime_types: vec!["video/x-msvideo".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: true,
+                timestamps: true,
+                metadata: true,
+            },
+        }),
+        "flv" => Some(FormatInfo {
+            name: "flv".to_string(),
+            long_name: "FLV (Flash Video)".to_string(),
+            extensions: vec!["flv".to_string()],
+            mime_types: vec!["video/x-flv".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: true,
+                multi_stream: true,
+                timestamps: true,
+                metadata: true,
+            },
+        }),
+        "mpegts" => Some(FormatInfo {
+            name: "mpegts".to_string(),
+            long_name: "MPEG-TS (MPEG Transport Stream)".to_string(),
+            extensions: vec!["ts".to_string(), "m2ts".to_string()],
+            mime_types: vec!["video/mp2t".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: false,
+                multi_stream: true,
+                timestamps: true,
+                metadata: false,
             },
         }),
         _ => None,
