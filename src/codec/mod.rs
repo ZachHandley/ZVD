@@ -6,11 +6,23 @@ pub mod encoder;
 pub mod frame;
 pub mod pcm;
 
+#[cfg(feature = "h264")]
+pub mod h264;
+
+#[cfg(feature = "aac")]
+pub mod aac;
+
 pub use av1::{Av1Decoder, Av1Encoder};
 pub use decoder::{Decoder, DecoderContext};
 pub use encoder::{Encoder, EncoderContext};
 pub use frame::{AudioFrame, Frame, PictureType, VideoFrame};
 pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
+
+#[cfg(feature = "h264")]
+pub use h264::{H264Decoder, H264Encoder};
+
+#[cfg(feature = "aac")]
+pub use aac::AacDecoder;
 
 use crate::error::Result;
 use crate::util::MediaType;

@@ -54,6 +54,17 @@ pub fn create_decoder(codec_id: &str) -> Result<Box<dyn Decoder>> {
             use crate::codec::Av1Decoder;
             Ok(Box::new(Av1Decoder::new()?))
         }
+        #[cfg(feature = "h264")]
+        "h264" => {
+            use crate::codec::H264Decoder;
+            Ok(Box::new(H264Decoder::new()?))
+        }
+        #[cfg(feature = "aac")]
+        "aac" => {
+            use crate::codec::AacDecoder;
+            // Default to stereo 44.1kHz, should be configured based on stream info
+            Ok(Box::new(AacDecoder::new(44100, 2)?))
+        }
         _ => Err(Error::unsupported(format!(
             "No decoder available for codec: {}",
             codec_id

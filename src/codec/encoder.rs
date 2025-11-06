@@ -66,6 +66,11 @@ pub fn create_encoder(codec_id: &str, width: u32, height: u32) -> Result<Box<dyn
             use crate::codec::Av1Encoder;
             Ok(Box::new(Av1Encoder::new(width, height)?))
         }
+        #[cfg(feature = "h264")]
+        "h264" => {
+            use crate::codec::H264Encoder;
+            Ok(Box::new(H264Encoder::new(width, height)?))
+        }
         _ => Err(Error::unsupported(format!(
             "No encoder available for codec: {}",
             codec_id
