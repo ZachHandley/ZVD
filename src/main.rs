@@ -3,8 +3,9 @@
 //! A command-line tool for multimedia processing
 
 use clap::{Parser, Subcommand};
+use std::io::Write;
 use std::path::PathBuf;
-use tracing::{info, error};
+use tracing::info;
 use zvd_lib::{Config, init};
 
 #[derive(Parser)]
@@ -244,21 +245,170 @@ fn cmd_info(input: &PathBuf) -> anyhow::Result<()> {
 }
 
 fn cmd_convert(
-    _input: &PathBuf,
-    _output: &PathBuf,
+    input: &PathBuf,
+    output: &PathBuf,
     _vcodec: Option<String>,
     _acodec: Option<String>,
     _vbitrate: Option<String>,
     _abitrate: Option<String>,
-    _format: Option<String>,
+    format: Option<String>,
 ) -> anyhow::Result<()> {
-    println!("Note: Conversion functionality not yet implemented.");
-    println!("This will be implemented with:");
-    println!("  1. Demuxer to read input");
-    println!("  2. Decoder to decompress streams");
-    println!("  3. Filters for processing");
-    println!("  4. Encoder to compress streams");
-    println!("  5. Muxer to write output");
+    use zvd_lib::codec::{PcmConfig, PcmDecoder, PcmEncoder};
+    use zvd_lib::format::demuxer::create_demuxer;
+    use zvd_lib::format::muxer::create_muxer;
+    use zvd_lib::util::MediaType;
+
+    println!("Converting {} -> {}", input.display(), output.display());
+
+    // Open input demuxer
+    let mut demuxer = create_demuxer(input)
+        .map_err(|e| anyhow::anyhow!("Failed to open input: {}", e))?;
+
+    // Get input streams
+    let streams = demuxer.streams();
+    if streams.is_empty() {
+        return Err(anyhow::anyhow!("No streams found in input file"));
+    }
+
+    // Find first audio stream
+    let audio_stream = streams
+        .iter()
+        .find(|s| s.info.media_type == MediaType::Audio)
+        .ok_or_else(|| anyhow::anyhow!("No audio stream found"))?;
+
+    let audio_info = audio_stream
+        .info
+        .audio_info
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Audio stream missing info"))?;
+
+    println!("Input:");
+    println!("  Codec: {}", audio_stream.info.codec_id);
+    println!("  Sample Rate: {} Hz", audio_info.sample_rate);
+    println!("  Channels: {}", audio_info.channels);
+    println!("  Format: {}", audio_info.sample_fmt);
+
+    // Detect output format
+    let output_format = if let Some(fmt) = format {
+        fmt
+    } else {
+        // Detect from extension
+        let ext = output
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("wav");
+        ext.to_string()
+    };
+
+    println!("\nOutput:");
+    println!("  Format: {}", output_format);
+
+    // Only support WAV for now
+    if output_format != "wav" {
+        return Err(anyhow::anyhow!(
+            "Only WAV output is currently supported"
+        ));
+    }
+
+    // Only support PCM codec for now
+    if audio_stream.info.codec_id != "pcm" {
+        return Err(anyhow::anyhow!(
+            "Only PCM codec is currently supported"
+        ));
+    }
+
+    // Parse sample format
+    let sample_format = match audio_info.sample_fmt.as_str() {
+        "u8" => zvd_lib::util::SampleFormat::U8,
+        "s16" | "i16" => zvd_lib::util::SampleFormat::I16,
+        "s32" | "i32" => zvd_lib::util::SampleFormat::I32,
+        "f32" => zvd_lib::util::SampleFormat::F32,
+        "f64" => zvd_lib::util::SampleFormat::F64,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported sample format: {}",
+                audio_info.sample_fmt
+            ))
+        }
+    };
+
+    // Create decoder
+    let pcm_config = PcmConfig::new(
+        sample_format,
+        audio_info.channels,
+        audio_info.sample_rate,
+    );
+    let decoder = PcmDecoder::new(pcm_config.clone());
+
+    // Create encoder (same config for now)
+    let encoder = PcmEncoder::new(pcm_config);
+
+    // Create output muxer
+    let mut muxer = create_muxer(&output_format)
+        .map_err(|e| anyhow::anyhow!("Failed to create muxer: {}", e))?;
+
+    muxer
+        .create(output)
+        .map_err(|e| anyhow::anyhow!("Failed to create output file: {}", e))?;
+
+    // Clone the stream for output
+    let output_stream = audio_stream.clone();
+    muxer
+        .add_stream(output_stream)
+        .map_err(|e| anyhow::anyhow!("Failed to add stream: {}", e))?;
+
+    muxer
+        .write_header()
+        .map_err(|e| anyhow::anyhow!("Failed to write header: {}", e))?;
+
+    // Process packets
+    let mut packets_processed = 0;
+    let mut total_bytes = 0;
+
+    println!("\nProcessing...");
+
+    loop {
+        // Read packet from input
+        let packet = match demuxer.read_packet() {
+            Ok(p) => p,
+            Err(zvd_lib::Error::EndOfStream) => break,
+            Err(e) => return Err(anyhow::anyhow!("Failed to read packet: {}", e)),
+        };
+
+        total_bytes += packet.data.len();
+
+        // Decode packet to frame
+        let frame = decoder
+            .decode_packet(&packet)
+            .map_err(|e| anyhow::anyhow!("Failed to decode packet: {}", e))?;
+
+        // Encode frame to packet
+        let mut output_packet = encoder
+            .encode_frame(&frame)
+            .map_err(|e| anyhow::anyhow!("Failed to encode frame: {}", e))?;
+
+        // Write packet to output
+        muxer
+            .write_packet(&output_packet)
+            .map_err(|e| anyhow::anyhow!("Failed to write packet: {}", e))?;
+
+        packets_processed += 1;
+
+        if packets_processed % 10 == 0 {
+            print!("\rProcessed {} packets ({} KB)...", packets_processed, total_bytes / 1024);
+            std::io::stdout().flush().ok();
+        }
+    }
+
+    // Finalize output
+    muxer
+        .write_trailer()
+        .map_err(|e| anyhow::anyhow!("Failed to write trailer: {}", e))?;
+
+    println!("\n\nConversion complete!");
+    println!("  Packets processed: {}", packets_processed);
+    println!("  Total data: {} KB", total_bytes / 1024);
+
     Ok(())
 }
 
