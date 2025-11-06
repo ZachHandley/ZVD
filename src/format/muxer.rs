@@ -70,9 +70,11 @@ impl MuxerContext {
 /// Create a muxer for the given format
 pub fn create_muxer(format: &str) -> Result<Box<dyn Muxer>> {
     use super::wav::WavMuxer;
+    use super::y4m::Y4mMuxer;
 
     match format {
         "wav" => Ok(Box::new(WavMuxer::new())),
+        "y4m" => Ok(Box::new(Y4mMuxer::new())),
         _ => Err(Error::unsupported(format!(
             "No muxer available for format: {}",
             format

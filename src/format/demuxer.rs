@@ -75,6 +75,7 @@ pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
     use super::detect_format_from_extension;
     use super::symphonia_adapter::SymphoniaDemuxer;
     use super::wav::WavDemuxer;
+    use super::y4m::Y4mDemuxer;
 
     // Detect format from extension
     let path_str = path.to_str().ok_or_else(|| {
@@ -98,6 +99,11 @@ pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
         "flac" | "ogg" | "mp3" => {
             // Use Symphonia for these formats
             let mut demuxer = SymphoniaDemuxer::new(format);
+            demuxer.open(path)?;
+            Ok(Box::new(demuxer))
+        }
+        "y4m" => {
+            let mut demuxer = Y4mDemuxer::new();
             demuxer.open(path)?;
             Ok(Box::new(demuxer))
         }

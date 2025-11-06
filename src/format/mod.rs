@@ -9,6 +9,7 @@ pub mod packet;
 pub mod stream;
 pub mod symphonia_adapter;
 pub mod wav;
+pub mod y4m;
 
 pub use demuxer::{Demuxer, DemuxerContext};
 pub use muxer::{Muxer, MuxerContext};
@@ -62,6 +63,7 @@ pub fn detect_format_from_extension(path: &str) -> Option<&'static str> {
         "wav" => Some("wav"),
         "flac" => Some("flac"),
         "opus" => Some("opus"),
+        "y4m" | "yuv" => Some("y4m"),
         _ => None,
     }
 }
@@ -139,6 +141,18 @@ pub fn get_format_info(name: &str) -> Option<FormatInfo> {
                 multi_stream: false,
                 timestamps: true,
                 metadata: true,
+            },
+        }),
+        "y4m" => Some(FormatInfo {
+            name: "y4m".to_string(),
+            long_name: "YUV4MPEG2 raw video".to_string(),
+            extensions: vec!["y4m".to_string(), "yuv".to_string()],
+            mime_types: vec!["video/x-yuv4mpeg".to_string()],
+            capabilities: FormatCapabilities {
+                seekable: false,
+                multi_stream: false,
+                timestamps: true,
+                metadata: false,
             },
         }),
         _ => None,

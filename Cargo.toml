@@ -60,6 +60,9 @@ symphonia = { version = "0.5", features = [
     "mp3",       # MP3 (patents expired)
 ] }
 
+# Y4M - YUV4MPEG2 raw video format (MIT)
+y4m = "0.8"
+
 # Color space conversions
 rgb = "0.8"
 
