@@ -2,14 +2,14 @@
 
 use super::{FlvHeader, FlvTagHeader, FlvTagType, FlvVideoCodec, FlvAudioCodec};
 use crate::error::{Error, Result};
-use crate::format::{Muxer, Packet, StreamInfo};
+use crate::format::{Muxer, Packet, Stream};
 use std::io::Write;
 
 /// FLV muxer
 pub struct FlvMuxer<W: Write> {
     writer: W,
     header: FlvHeader,
-    streams: Vec<StreamInfo>,
+    streams: Vec<Stream>,
     started: bool,
     last_timestamp: u32,
 }
@@ -62,7 +62,8 @@ impl<W: Write> FlvMuxer<W> {
 }
 
 impl<W: Write> Muxer for FlvMuxer<W> {
-    fn add_stream(&mut self, stream: StreamInfo) -> Result<usize> {
+    fn create(&mut self, _path: &std::path::Path) -> Result<()> { Ok(()) }
+    fn add_stream(&mut self, stream: Stream) -> Result<usize> {
         let index = self.streams.len();
         self.streams.push(stream);
         Ok(index)
@@ -94,7 +95,8 @@ impl<W: Write> Muxer for FlvMuxer<W> {
 
         // Placeholder - would determine tag type from packet stream index
         // and write appropriate FLV tag with encoded data
-        let timestamp = (packet.pts.unwrap_or(0) / 1000) as u32; // Convert to milliseconds
+        let timestamp_value = if packet.pts.is_valid() { packet.pts.value } else { 0 };
+        let timestamp = (timestamp_value / 1000) as u32; // Convert to milliseconds
 
         Ok(())
     }

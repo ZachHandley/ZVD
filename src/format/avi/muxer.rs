@@ -2,7 +2,7 @@
 
 use super::{AviMainHeader, AviStreamHeader, RiffChunk};
 use crate::error::{Error, Result};
-use crate::format::{Muxer, Packet, StreamInfo};
+use crate::format::{Muxer, Packet, Stream};
 use std::io::Write;
 
 /// AVI muxer
@@ -10,7 +10,7 @@ pub struct AviMuxer<W: Write> {
     writer: W,
     main_header: AviMainHeader,
     stream_headers: Vec<AviStreamHeader>,
-    streams: Vec<StreamInfo>,
+    streams: Vec<Stream>,
     frame_count: u32,
     started: bool,
 }
@@ -73,7 +73,12 @@ impl<W: Write> AviMuxer<W> {
 }
 
 impl<W: Write> Muxer for AviMuxer<W> {
-    fn add_stream(&mut self, stream: StreamInfo) -> Result<usize> {
+    fn create(&mut self, _path: &std::path::Path) -> Result<()> {
+        // For writer-based muxer, this is a no-op
+        Ok(())
+    }
+
+    fn add_stream(&mut self, stream: Stream) -> Result<usize> {
         let index = self.streams.len();
         self.streams.push(stream);
         Ok(index)

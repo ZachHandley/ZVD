@@ -2,14 +2,14 @@
 
 use super::{FlvHeader, FlvTagHeader, FlvTagType};
 use crate::error::{Error, Result};
-use crate::format::{Demuxer, Packet, StreamInfo};
+use crate::format::{Demuxer, Packet, Stream};
 use std::io::{Read, Seek, SeekFrom};
 
 /// FLV demuxer
 pub struct FlvDemuxer<R: Read + Seek> {
     reader: R,
     header: Option<FlvHeader>,
-    streams: Vec<StreamInfo>,
+    streams: Vec<Stream>,
     duration: Option<f64>,
 }
 

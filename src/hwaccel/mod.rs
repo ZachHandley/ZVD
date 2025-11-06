@@ -120,8 +120,11 @@ impl HwAccelContext {
     }
 
     /// Get mutable device
-    pub fn device_mut(&mut self) -> Option<&mut dyn HwAccelDevice> {
-        self.device.as_mut().map(|d| d.as_mut())
+    pub fn device_mut(&mut self) -> Option<&mut (dyn HwAccelDevice + '_)> {
+        match &mut self.device {
+            Some(device) => Some(&mut **device),
+            None => None,
+        }
     }
 
     /// Check if hardware acceleration is available

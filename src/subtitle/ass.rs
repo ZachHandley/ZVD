@@ -290,7 +290,7 @@ impl SubtitleParser for AssParser {
         output.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
 
         for subtitle in subtitles {
-            let style = subtitle.style.as_ref().unwrap_or(&"Default".to_string());
+            let style = subtitle.style.as_deref().unwrap_or("Default");
             output.push_str(&format!(
                 "Dialogue: 0,{},{},{},,,0,0,0,,{}\n",
                 Self::format_ass_timestamp(subtitle.start_time),

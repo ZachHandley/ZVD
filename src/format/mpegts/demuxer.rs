@@ -2,14 +2,14 @@
 
 use super::{TsPacketHeader, StreamType, TS_PACKET_SIZE, TS_SYNC_BYTE, pids};
 use crate::error::{Error, Result};
-use crate::format::{Demuxer, Packet, StreamInfo};
+use crate::format::{Demuxer, Packet, Stream};
 use std::io::Read;
 use std::collections::HashMap;
 
 /// MPEG-TS demuxer
 pub struct MpegtsDemuxer<R: Read> {
     reader: R,
-    streams: Vec<StreamInfo>,
+    streams: Vec<Stream>,
     stream_map: HashMap<u16, usize>, // PID -> stream index
     duration: Option<f64>,
     packet_count: u64,
@@ -121,7 +121,7 @@ impl<R: Read> Demuxer for MpegtsDemuxer<R> {
 
     fn seek(&mut self, _stream_index: usize, _timestamp: i64) -> Result<()> {
         // TS seeking is complex - need to find sync points
-        Err(Error::NotSupported)
+        Err(Error::unsupported("Seeking not supported for MPEG-TS"))
     }
 
     fn streams(&self) -> &[crate::format::Stream] {

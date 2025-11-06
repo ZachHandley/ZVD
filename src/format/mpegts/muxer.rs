@@ -2,14 +2,14 @@
 
 use super::{TsPacketHeader, StreamType, TS_PACKET_SIZE, pids};
 use crate::error::{Error, Result};
-use crate::format::{Muxer, Packet, StreamInfo};
+use crate::format::{Muxer, Packet, Stream};
 use std::io::Write;
 use std::collections::HashMap;
 
 /// MPEG-TS muxer
 pub struct MpegtsMuxer<W: Write> {
     writer: W,
-    streams: Vec<StreamInfo>,
+    streams: Vec<Stream>,
     stream_pids: HashMap<usize, u16>, // stream index -> PID
     continuity_counters: HashMap<u16, u8>, // PID -> counter
     next_pid: u16,
@@ -142,7 +142,8 @@ impl<W: Write> MpegtsMuxer<W> {
 }
 
 impl<W: Write> Muxer for MpegtsMuxer<W> {
-    fn add_stream(&mut self, stream: StreamInfo) -> Result<usize> {
+    fn create(&mut self, _path: &std::path::Path) -> Result<()> { Ok(()) }
+    fn add_stream(&mut self, stream: Stream) -> Result<usize> {
         if self.started {
             return Err(Error::invalid_state("Cannot add stream after header written"));
         }
@@ -183,7 +184,7 @@ impl<W: Write> Muxer for MpegtsMuxer<W> {
 
         // Placeholder - would create PES packet and write TS packets
         // For now, just write the data
-        self.write_ts_packet(*pid, &packet.data, true)?;
+        self.write_ts_packet(*pid, packet.data.as_slice(), true)?;
 
         Ok(())
     }

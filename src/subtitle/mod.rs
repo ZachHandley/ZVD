@@ -120,7 +120,7 @@ fn parse_webvtt_timestamp(s: &str) -> Option<Duration> {
         0
     };
 
-    let (hours, minutes, seconds) = match time_parts.len() {
+    let (hours, minutes, seconds): (u64, u64, u64) = match time_parts.len() {
         2 => (0, time_parts[0].parse().ok()?, time_parts[1].parse().ok()?),
         3 => (
             time_parts[0].parse().ok()?,
