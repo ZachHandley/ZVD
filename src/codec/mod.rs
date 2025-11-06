@@ -28,7 +28,8 @@ pub mod vp8;
 #[cfg(feature = "vp9-codec")]
 pub mod vp9;
 
-// Professional codecs (temporarily disabled - need trait fixes)
+// Professional codecs (TODO: Need to fully implement Encoder/Decoder traits)
+// These are placeholder implementations ready for actual codec libraries
 // pub mod prores;
 // pub mod dnxhd;
 
