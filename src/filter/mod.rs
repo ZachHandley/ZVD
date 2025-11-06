@@ -1,10 +1,14 @@
 //! Audio and video filtering and processing
 
+pub mod audio;
+pub mod chain;
 pub mod graph;
 pub mod video;
-pub mod audio;
 
+pub use audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
+pub use chain::FilterChain;
 pub use graph::{FilterGraph, FilterNode};
+pub use video::{CropFilter, RotateFilter, ScaleFilter};
 
 use crate::error::Result;
 use crate::codec::Frame;
