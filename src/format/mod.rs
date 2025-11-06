@@ -12,6 +12,9 @@ pub mod wav;
 pub mod webm;
 pub mod y4m;
 
+#[cfg(feature = "mp4-support")]
+pub mod mp4;
+
 pub use demuxer::{Demuxer, DemuxerContext};
 pub use muxer::{Muxer, MuxerContext};
 pub use packet::Packet;

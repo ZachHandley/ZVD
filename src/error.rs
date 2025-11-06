@@ -93,3 +93,11 @@ impl Error {
         Error::InvalidState(msg.into())
     }
 }
+
+// Conditional From implementations for optional features
+#[cfg(feature = "mp4-support")]
+impl From<mp4::Error> for Error {
+    fn from(err: mp4::Error) -> Self {
+        Error::Format(format!("MP4 error: {}", err))
+    }
+}
