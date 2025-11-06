@@ -373,3 +373,245 @@ impl Filter for RotateFilter {
         Ok(Vec::new())
     }
 }
+/// Flip video filter (horizontal or vertical)
+pub struct FlipFilter {
+    horizontal: bool,
+    vertical: bool,
+}
+
+impl FlipFilter {
+    /// Create a new flip filter
+    pub fn horizontal() -> Self {
+        FlipFilter {
+            horizontal: true,
+            vertical: false,
+        }
+    }
+
+    /// Create a vertical flip filter
+    pub fn vertical() -> Self {
+        FlipFilter {
+            horizontal: false,
+            vertical: true,
+        }
+    }
+
+    /// Create a both-axis flip filter
+    pub fn both() -> Self {
+        FlipFilter {
+            horizontal: true,
+            vertical: true,
+        }
+    }
+
+    /// Flip a YUV420P frame
+    fn flip_yuv420p(&self, video_frame: &VideoFrame) -> Result<VideoFrame> {
+        if video_frame.data.len() < 3 {
+            return Err(Error::filter("YUV420P frame must have 3 planes"));
+        }
+
+        let width = video_frame.width;
+        let height = video_frame.height;
+
+        // Flip Y plane
+        let y_plane = video_frame.data[0].as_slice();
+        let y_flipped = self.flip_plane(y_plane, width, height)?;
+
+        // Flip U plane (half resolution)
+        let u_plane = video_frame.data[1].as_slice();
+        let u_flipped = self.flip_plane(u_plane, width / 2, height / 2)?;
+
+        // Flip V plane (half resolution)
+        let v_plane = video_frame.data[2].as_slice();
+        let v_flipped = self.flip_plane(v_plane, width / 2, height / 2)?;
+
+        // Create output frame
+        let mut output_frame = VideoFrame::new(width, height, video_frame.format);
+        output_frame.data = vec![
+            Buffer::from_vec(y_flipped),
+            Buffer::from_vec(u_flipped),
+            Buffer::from_vec(v_flipped),
+        ];
+        output_frame.linesize = vec![
+            width as usize,
+            (width / 2) as usize,
+            (width / 2) as usize,
+        ];
+        output_frame.pts = video_frame.pts;
+        output_frame.duration = video_frame.duration;
+        output_frame.keyframe = video_frame.keyframe;
+        output_frame.pict_type = video_frame.pict_type;
+
+        Ok(output_frame)
+    }
+
+    /// Flip a single plane
+    fn flip_plane(&self, src: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
+        let mut dst = vec![0u8; (width * height) as usize];
+
+        for y in 0..height {
+            for x in 0..width {
+                let src_idx = (y * width + x) as usize;
+                
+                let dst_x = if self.horizontal { width - 1 - x } else { x };
+                let dst_y = if self.vertical { height - 1 - y } else { y };
+                let dst_idx = (dst_y * width + dst_x) as usize;
+
+                dst[dst_idx] = src[src_idx];
+            }
+        }
+
+        Ok(dst)
+    }
+}
+
+impl Filter for FlipFilter {
+    fn filter(&mut self, input: Frame) -> Result<Vec<Frame>> {
+        match input {
+            Frame::Video(video_frame) => {
+                if video_frame.format != PixelFormat::YUV420P {
+                    return Err(Error::filter(format!(
+                        "Flip filter only supports YUV420P, got {:?}",
+                        video_frame.format
+                    )));
+                }
+
+                let flipped = self.flip_yuv420p(&video_frame)?;
+                Ok(vec![Frame::Video(flipped)])
+            }
+            Frame::Audio(_) => Err(Error::filter("Flip filter only accepts video frames")),
+        }
+    }
+
+    fn flush(&mut self) -> Result<Vec<Frame>> {
+        Ok(Vec::new())
+    }
+}
+
+/// Brightness and Contrast adjustment filter
+pub struct BrightnessContrastFilter {
+    brightness: i32, // -100 to 100
+    contrast: f32,   // 0.0 to 3.0, 1.0 = no change
+}
+
+impl BrightnessContrastFilter {
+    /// Create a new brightness/contrast filter
+    /// brightness: -100 to 100 (0 = no change)
+    /// contrast: 0.0 to 3.0 (1.0 = no change)
+    pub fn new(brightness: i32, contrast: f32) -> Self {
+        BrightnessContrastFilter {
+            brightness: brightness.clamp(-100, 100),
+            contrast: contrast.clamp(0.0, 3.0),
+        }
+    }
+
+    /// Adjust brightness/contrast of a YUV420P frame
+    fn adjust_yuv420p(&self, video_frame: &VideoFrame) -> Result<VideoFrame> {
+        if video_frame.data.len() < 3 {
+            return Err(Error::filter("YUV420P frame must have 3 planes"));
+        }
+
+        let width = video_frame.width;
+        let height = video_frame.height;
+
+        // Adjust Y plane (luminance)
+        let y_plane = video_frame.data[0].as_slice();
+        let y_adjusted = self.adjust_plane(y_plane)?;
+
+        // U and V planes remain unchanged
+        let u_plane = video_frame.data[1].as_slice();
+        let v_plane = video_frame.data[2].as_slice();
+
+        // Create output frame
+        let mut output_frame = VideoFrame::new(width, height, video_frame.format);
+        output_frame.data = vec![
+            Buffer::from_vec(y_adjusted),
+            Buffer::from_vec(u_plane.to_vec()),
+            Buffer::from_vec(v_plane.to_vec()),
+        ];
+        output_frame.linesize = vec![
+            width as usize,
+            (width / 2) as usize,
+            (width / 2) as usize,
+        ];
+        output_frame.pts = video_frame.pts;
+        output_frame.duration = video_frame.duration;
+        output_frame.keyframe = video_frame.keyframe;
+        output_frame.pict_type = video_frame.pict_type;
+
+        Ok(output_frame)
+    }
+
+    /// Adjust brightness/contrast of a plane
+    fn adjust_plane(&self, src: &[u8]) -> Result<Vec<u8>> {
+        let mut dst = Vec::with_capacity(src.len());
+
+        for &pixel in src {
+            let value = pixel as f32;
+            
+            // Apply contrast first (around midpoint 128)
+            let contrasted = ((value - 128.0) * self.contrast + 128.0);
+            
+            // Apply brightness
+            let adjusted = contrasted + self.brightness as f32;
+            
+            // Clamp to valid range
+            let clamped = adjusted.clamp(0.0, 255.0) as u8;
+            
+            dst.push(clamped);
+        }
+
+        Ok(dst)
+    }
+}
+
+impl Filter for BrightnessContrastFilter {
+    fn filter(&mut self, input: Frame) -> Result<Vec<Frame>> {
+        match input {
+            Frame::Video(video_frame) => {
+                if video_frame.format != PixelFormat::YUV420P {
+                    return Err(Error::filter(format!(
+                        "BrightnessContrast filter only supports YUV420P, got {:?}",
+                        video_frame.format
+                    )));
+                }
+
+                let adjusted = self.adjust_yuv420p(&video_frame)?;
+                Ok(vec![Frame::Video(adjusted)])
+            }
+            Frame::Audio(_) => Err(Error::filter("BrightnessContrast filter only accepts video frames")),
+        }
+    }
+
+    fn flush(&mut self) -> Result<Vec<Frame>> {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::Timestamp;
+
+    #[test]
+    fn test_flip_filter_creation() {
+        let filter = FlipFilter::horizontal();
+        assert!(filter.horizontal);
+        assert!(!filter.vertical);
+
+        let filter = FlipFilter::vertical();
+        assert!(!filter.horizontal);
+        assert!(filter.vertical);
+
+        let filter = FlipFilter::both();
+        assert!(filter.horizontal);
+        assert!(filter.vertical);
+    }
+
+    #[test]
+    fn test_brightness_contrast_filter() {
+        let filter = BrightnessContrastFilter::new(50, 1.2);
+        assert_eq!(filter.brightness, 50);
+        assert!((filter.contrast - 1.2).abs() < 0.01);
+    }
+}

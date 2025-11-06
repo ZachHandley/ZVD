@@ -83,6 +83,16 @@ pub fn create_decoder(codec_id: &str) -> Result<Box<dyn Decoder>> {
             use crate::codec::Mp3Decoder;
             Ok(Box::new(Mp3Decoder::new(44100, 2)?))
         }
+        #[cfg(feature = "vp8-codec")]
+        "vp8" => {
+            use crate::codec::Vp8Decoder;
+            Ok(Box::new(Vp8Decoder::new()?))
+        }
+        #[cfg(feature = "vp9-codec")]
+        "vp9" => {
+            use crate::codec::Vp9Decoder;
+            Ok(Box::new(Vp9Decoder::new()?))
+        }
         _ => Err(Error::unsupported(format!(
             "No decoder available for codec: {}",
             codec_id

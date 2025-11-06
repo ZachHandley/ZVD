@@ -1,0 +1,51 @@
+[package]
+name = "zvd-wasm"
+version = "0.1.0"
+edition = "2021"
+authors = ["ZVD Contributors"]
+description = "WASM bindings for ZVD multimedia processing library"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core ZVD library
+zvd_lib = { path = "..", default-features = false, features = ["opus-codec"] }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "File",
+    "FileReader",
+    "Blob",
+    "Url",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "ImageData",
+    "AudioContext",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+] }
+
+# Serialization for JS interop
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+# Error handling
+thiserror = "1.0"
+
+# Async
+futures = "0.3"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = "z"  # Optimize for size
+lto = true
+codegen-units = 1
+panic = "abort"
