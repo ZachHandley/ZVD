@@ -33,8 +33,8 @@ pub mod prores;
 pub mod dnxhd;
 
 pub use av1::{Av1Decoder, Av1Encoder};
-pub use decoder::{Decoder, DecoderContext};
-pub use encoder::{Encoder, EncoderContext};
+pub use decoder::{create_decoder, Decoder, DecoderContext};
+pub use encoder::{create_audio_encoder, create_encoder, Encoder, EncoderContext};
 pub use frame::{AudioFrame, Frame, PictureType, VideoFrame};
 pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
 

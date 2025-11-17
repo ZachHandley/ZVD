@@ -22,7 +22,7 @@ ZVD is a comprehensive multimedia processing library written in pure Rust, provi
 ### 🎥 Video Codecs
 
 **Patent-Free (Royalty-Free)**
-- ✅ **AV1** - Next-generation video codec (encoder/decoder via rav1e/dav1d)
+- ✅ **AV1** - Next-generation video codec (encoder via rav1e, decoder via libdav1d)
 - ✅ **VP8** - WebM video codec (placeholder, ready for libvpx integration)
 - ✅ **VP9** - Improved VP8 successor (placeholder, ready for libvpx integration)
 
@@ -90,12 +90,51 @@ ZVD is a comprehensive multimedia processing library written in pure Rust, provi
 - Rust 2021 or later
 - Cargo
 
+### System Dependencies
+
+ZVD uses native libraries for optimal performance. You'll need to install:
+
+**libdav1d** (for AV1 decoding):
+```bash
+# Debian/Ubuntu
+sudo apt install libdav1d-dev
+
+# Arch Linux
+sudo pacman -S dav1d
+
+# macOS
+brew install dav1d
+
+# Fedora
+sudo dnf install dav1d-devel
+```
+
+**Optional** (for patent-encumbered codecs):
+```bash
+# H.264 support (OpenH264)
+# Debian/Ubuntu
+sudo apt install libopenh264-dev
+
+# macOS
+brew install openh264
+```
+
 ### Building from Source
 
 ```bash
 git clone https://github.com/ZachHandley/ZVD.git
 cd ZVD
 cargo build --release
+```
+
+**Build without optional codecs** (patent-free only):
+```bash
+cargo build --release --no-default-features
+```
+
+**Build with all codecs** (requires patent acknowledgment):
+```bash
+cargo build --release --features all-codecs
 ```
 
 ### Feature Flags
