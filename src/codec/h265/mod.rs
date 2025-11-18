@@ -108,6 +108,7 @@
 
 pub mod nal;
 pub mod headers;
+pub mod bitstream;
 pub mod decoder;
 
 pub use decoder::H265Decoder;
