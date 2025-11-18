@@ -2,6 +2,62 @@
 //!
 //! ProRes is a high-quality video codec designed for professional video editing.
 //! It offers excellent image quality with manageable file sizes.
+//!
+//! ## Implementation Status
+//!
+//! **Current State**: Header parsing and format structures implemented.
+//! **Full Decoding/Encoding**: Requires FFmpeg or similar library.
+//!
+//! ### What's Implemented
+//!
+//! - ✅ **ProRes Profile Support**: All variants (Proxy, LT, Standard, HQ, 4444, 4444 XQ)
+//! - ✅ **Frame Header Parsing**: Complete ProRes frame header structure
+//! - ✅ **FourCC Handling**: Correct identification of all ProRes types
+//! - ✅ **Metadata**: Width, height, chroma format, alpha channel detection
+//! - ✅ **Bitrate Estimation**: Approximate bitrates for all profiles
+//!
+//! ### What's NOT Implemented (Requires FFmpeg)
+//!
+//! - ❌ **Actual Decoding**: Slice parsing, Huffman/VLC decoding, inverse DCT
+//! - ❌ **Actual Encoding**: DCT, quantization, slice encoding
+//! - ⚠️ The `decode_frame_data()` and `encode_frame_data()` functions are stubs
+//!
+//! ## Why FFmpeg is Required
+//!
+//! ProRes encoding/decoding involves:
+//! 1. Complex variable-length coding (Huffman/VLC)
+//! 2. Inverse DCT transformations
+//! 3. Inverse quantization with profile-specific matrices
+//! 4. Slice-based encoding with specific block structures
+//! 5. Color space conversions
+//!
+//! Implementing this from scratch would be thousands of lines and require extensive
+//! testing against reference implementations. Using FFmpeg's libavcodec is the
+//! pragmatic choice for production use.
+//!
+//! ## Future Work
+//!
+//! To enable full ProRes support:
+//! 1. Add `ffmpeg-next` or `ac-ffmpeg` dependency
+//! 2. Create FFmpeg codec adapter
+//! 3. Wire up decoder/encoder to use libavcodec
+//! 4. Add comprehensive integration tests
+//!
+//! ## Usage (Current - Header Parsing Only)
+//!
+//! ```rust
+//! use zvd_lib::codec::prores::{ProResProfile, ProResFrameHeader};
+//!
+//! // Check profile characteristics
+//! let profile = ProResProfile::Hq;
+//! assert_eq!(profile.fourcc(), *b"apch");
+//! assert_eq!(profile.approx_bitrate_mbps(), 220);
+//! assert!(!profile.has_alpha());
+//!
+//! // Create frame header for encoding
+//! let header = ProResFrameHeader::new(1920, 1080, profile);
+//! assert_eq!(header.width, 1920);
+//! ```
 
 pub mod encoder;
 pub mod decoder;

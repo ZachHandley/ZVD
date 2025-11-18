@@ -2,6 +2,64 @@
 //!
 //! DNxHD (Digital Nonlinear Extensible High Definition) is Avid's
 //! professional video codec for high-quality editing workflows.
+//!
+//! ## Implementation Status
+//!
+//! **Current State**: Header parsing and format structures implemented.
+//! **Full Decoding/Encoding**: Requires FFmpeg or similar library.
+//!
+//! ### What's Implemented
+//!
+//! - ✅ **DNxHD & DNxHR Support**: All profiles including 10-bit variants
+//! - ✅ **Frame Header Parsing**: Complete DNxHD frame header structure
+//! - ✅ **Compression ID (CID) Handling**: All standard CIDs
+//! - ✅ **Profile Detection**: DNxHD vs DNxHR, 8-bit vs 10-bit, 4:2:2 vs 4:4:4
+//! - ✅ **Bitrate Estimation**: Approximate bitrates for all profiles
+//! - ✅ **Resolution Independence**: DNxHR support for any resolution
+//!
+//! ### What's NOT Implemented (Requires FFmpeg)
+//!
+//! - ❌ **Actual Decoding**: Variable-length decoding, inverse quantization, inverse DCT
+//! - ❌ **Actual Encoding**: DCT, quantization, variable-length encoding
+//! - ⚠️ The `decode_frame_data()` and `encode_frame_data()` functions are stubs
+//!
+//! ## Why FFmpeg is Required
+//!
+//! DNxHD/DNxHR encoding/decoding involves:
+//! 1. Variable-length coding (specific to each CID)
+//! 2. Inverse DCT transformations
+//! 3. CID-specific quantization matrices
+//! 4. Macroblock-based encoding
+//! 5. Interlaced vs progressive frame handling
+//!
+//! Implementing this from scratch requires extensive specification knowledge and
+//! testing. Using FFmpeg's libavcodec provides battle-tested implementation.
+//!
+//! ## Future Work
+//!
+//! To enable full DNxHD/DNxHR support:
+//! 1. Add `ffmpeg-next` or `ac-ffmpeg` dependency
+//! 2. Create FFmpeg codec adapter
+//! 3. Wire up decoder/encoder to use libavcodec
+//! 4. Add comprehensive integration tests with various CIDs
+//!
+//! ## Usage (Current - Header Parsing Only)
+//!
+//! ```rust
+//! use zvd_lib::codec::dnxhd::{DnxhdProfile, DnxhdFrameHeader};
+//!
+//! // Check profile characteristics
+//! let profile = DnxhdProfile::DnxhrHq;
+//! assert_eq!(profile.cid(), 1252);
+//! assert_eq!(profile.approx_bitrate_mbps(), 185);
+//! assert!(profile.is_dnxhr());
+//! assert!(!profile.is_10bit());
+//!
+//! // Create frame header
+//! let header = DnxhdFrameHeader::new(1920, 1080, profile);
+//! assert_eq!(header.width, 1920);
+//! assert_eq!(header.bit_depth, 8);
+//! ```
 
 pub mod encoder;
 pub mod decoder;
