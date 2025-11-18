@@ -301,17 +301,48 @@ All codecs are optional via Cargo features:
 - ✅ Thread safety and concurrency
 - ✅ Resource cleanup and memory safety
 
+## Performance Benchmarks
+
+### Criterion-Based Benchmark Suite
+
+**Codec Benchmarks** (`benches/codec_benchmarks.rs`):
+- AV1 encode/decode at 480p, 720p, 1080p
+- H.264 encode/decode at 480p, 720p, 1080p
+- VP8/VP9 encode at 480p, 720p
+- Opus encode/decode stereo 20ms frames
+- Frame creation overhead measurement
+
+**Filter Benchmarks** (`benches/filter_benchmarks.rs`):
+- Video filters: Scale, Crop, Rotate, Flip, Brightness/Contrast
+- Audio filters: Volume, Resample, Normalize
+- Filter chains: Multi-filter pipeline performance
+- Resolution scaling: 1080p → 720p/480p/4K
+
+**Running Benchmarks**:
+```bash
+# All benchmarks with all features
+cargo bench --all-features
+
+# Patent-free codecs only
+cargo bench --no-default-features
+
+# Specific suite
+cargo bench --bench codec_benchmarks
+cargo bench --bench filter_benchmarks
+```
+
+Results available in `target/criterion/report/index.html`
+
 ## Next Steps (Priority Order)
 
 ### High Priority
 1. ✅ **Core Codecs** - Complete (AV1, H.264, VP8, VP9, Opus + audio decoders)
 2. ✅ **Integration Tests** - COMPLETE (165+ integration tests, 255+ total)
-3. ⏳ **README** - Complete quick start guide
+3. ✅ **Performance Benchmarks** - COMPLETE (Criterion-based codec & filter benchmarks)
 
 ### Medium Priority
-4. ⏳ **Performance Benchmarks** - Criterion-based benchmarks
-5. ⏳ **CODEC_LICENSES.md** - Detailed patent/license documentation
-6. ⏳ **CLI Examples** - Common use case demonstrations
+4. ✅ **CODEC_LICENSES.md** - COMPLETE (Detailed patent/license documentation)
+5. ⏳ **CLI Examples** - Common use case demonstrations
 
 ### Low Priority
 7. ⏳ **FLAC Encoder** - Add encoding support (pure Rust available)

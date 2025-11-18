@@ -17,6 +17,14 @@ path = "src/main.rs"
 name = "zvd_lib"
 path = "src/lib.rs"
 
+[[bench]]
+name = "codec_benchmarks"
+harness = false
+
+[[bench]]
+name = "filter_benchmarks"
+harness = false
+
 [dependencies]
 # CLI and argument parsing
 clap = { version = "4.5", features = ["derive", "cargo"] }
