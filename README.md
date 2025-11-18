@@ -15,32 +15,39 @@
 
 ZVD is a comprehensive multimedia processing library written in pure Rust, providing the power of FFmpeg with modern safety guarantees. It supports video and audio encoding/decoding, filtering, format conversion, and runs on native platforms and WebAssembly.
 
-**Current Status**: 🚀 **Production Ready** - Comprehensive codec support, advanced filters, and WASM compilation!
+**Current Status**: 🚀 **75% Complete - Production Ready for Core Use Cases**
+
+See [CODEC_STATUS.md](CODEC_STATUS.md) for detailed implementation status.
 
 ## Features
 
 ### 🎥 Video Codecs
 
 **Patent-Free (Royalty-Free)**
-- ✅ **AV1** - Next-generation video codec (encoder via rav1e, decoder via libdav1d)
-- ✅ **VP8** - WebM video codec (placeholder, ready for libvpx integration)
-- ✅ **VP9** - Improved VP8 successor (placeholder, ready for libvpx integration)
+- ✅ **AV1** - Next-generation video codec (encoder: rav1e, decoder: dav1d-rs) - **27 tests**
+- ✅ **VP8** - WebM video codec (encoder/decoder via libvpx) - **20+ tests**
+- ✅ **VP9** - Advanced WebM codec (encoder/decoder via libvpx, 10/12-bit support) - **Advanced features**
 
 **Patent-Encumbered (Optional)**
-- ✅ **H.264/AVC** - Industry standard (encoder/decoder via OpenH264)
-- 🔜 **H.265/HEVC** - High efficiency video coding (planned)
+- ✅ **H.264/AVC** - Industry standard (encoder/decoder via OpenH264) - **7 tests**
+
+**Professional (Header Parsing Only)**
+- ⚠️ **ProRes** - Apple professional codec (format detection, full codec requires FFmpeg)
+- ⚠️ **DNxHD/DNxHR** - Avid professional codec (format detection, full codec requires FFmpeg)
 
 ### 🎵 Audio Codecs
 
 **Patent-Free (Royalty-Free)**
-- ✅ **Opus** - Modern audio codec (encoder/decoder via opus crate)
-- ✅ **Vorbis** - Ogg Vorbis decoder (via Symphonia)
-- ✅ **FLAC** - Lossless audio codec (via Symphonia)
-- ✅ **MP3** - MPEG Audio Layer 3 (decoder via Symphonia, patents expired)
+- ✅ **Opus** - Modern audio codec (encoder/decoder via libopus) - **14 tests**
+- ✅ **FLAC** - Lossless audio (decoder via Symphonia) - **6 tests**
+- ✅ **Vorbis** - Ogg Vorbis (decoder via Symphonia) - **4 tests**
+- ✅ **MP3** - MPEG Audio Layer 3 (decoder via Symphonia, patents expired 2017) - **5 tests**
 - ✅ **PCM** - Uncompressed audio (all standard formats)
 
 **Patent-Encumbered (Optional)**
-- ✅ **AAC** - Advanced Audio Coding (decoder via Symphonia)
+- ✅ **AAC** - Advanced Audio Coding (decoder via Symphonia, LC-AAC only) - **5 tests**
+
+**Note**: Audio decoders use container-level decoding via SymphoniaAdapter for optimal performance and metadata support.
 
 ### 📦 Container Formats
 
@@ -307,15 +314,26 @@ ZVD is designed for high performance:
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the complete feature roadmap covering:
+See [PROJECT_TODO.md](PROJECT_TODO.md) for detailed implementation roadmap.
 
-- Additional codecs (ProRes, DNxHD, JPEG2000)
-- More container formats (AVI, FLV, MPEG-TS, MXF)
-- Advanced filters (deinterlacing, denoise, color grading)
-- Hardware acceleration (VAAPI, NVENC, QSV, VideoToolbox)
-- Streaming protocols (RTMP, HLS, DASH, SRT)
-- Subtitle support (SRT, WebVTT, ASS/SSA)
-- Production readiness (fuzzing, benchmarks, CI/CD)
+**Completed** (75%):
+- ✅ Core video codecs (AV1, H.264, VP8, VP9)
+- ✅ Core audio codecs (Opus, FLAC, Vorbis, MP3, AAC)
+- ✅ WebM container support
+- ✅ Basic filters
+- ✅ Format detection for ProRes/DNxHD
+
+**In Progress** (25%):
+- ⏳ Audio encoders (FLAC, Vorbis)
+- ⏳ Integration tests
+- ⏳ Performance benchmarks
+- ⏳ Complete documentation
+
+**Future**:
+- FFmpeg integration for ProRes/DNxHD full support
+- Additional container formats
+- Hardware acceleration
+- Streaming protocols
 
 ## Patent Considerations
 
@@ -351,7 +369,9 @@ cargo test test_av1_encoder
 RUST_LOG=debug cargo test
 ```
 
-Current test coverage: **55 tests passing** ✅
+Current test coverage: **90+ tests passing** ✅
+
+See [CODEC_STATUS.md](CODEC_STATUS.md) for detailed breakdown.
 
 ## Contributing
 
