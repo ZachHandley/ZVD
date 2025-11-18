@@ -130,12 +130,13 @@ vp9-codec = ["vpx-sys"]
 # Optional patent-encumbered codec support
 # Users must acknowledge patent licensing requirements (see CODEC_LICENSES.md)
 h264 = ["openh264", "mp4"]
+h265 = []  # Pure Rust H.265 implementation (no external dependencies)
 aac = ["symphonia-codec-aac", "mp4"]
 mp4-support = ["mp4"]
 
 # Convenience features
 all-free-codecs = ["opus-codec", "vp8-codec", "vp9-codec"]
-all-codecs = ["h264", "aac", "mp4-support", "all-free-codecs"]
+all-codecs = ["h264", "h265", "aac", "mp4-support", "all-free-codecs"]
 
 [dev-dependencies]
 criterion = "0.5"
