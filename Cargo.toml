@@ -95,9 +95,9 @@ openh264 = { version = "0.6", optional = true }
 opus = { version = "0.3", optional = true }
 
 # VP8/VP9 codecs (royalty-free)
-# Note: Full implementation would use libvpx (requires system library)
-# Currently using placeholder implementations
-# vpx = { version = "0.1", optional = true }
+# libvpx bindings - BSD license
+# System requirement: libvpx must be installed (apt: libvpx-dev, brew: libvpx)
+vpx-sys = { version = "0.1", optional = true }
 
 # Color space conversions
 rgb = "0.8"
@@ -115,9 +115,9 @@ default = []
 # Patent-free audio codecs
 opus-codec = ["opus"]
 
-# Patent-free video codecs (placeholder implementations)
-vp8-codec = []
-vp9-codec = []
+# Patent-free video codecs
+vp8-codec = ["vpx-sys"]
+vp9-codec = ["vpx-sys"]
 
 # Optional patent-encumbered codec support
 # Users must acknowledge patent licensing requirements (see CODEC_LICENSES.md)

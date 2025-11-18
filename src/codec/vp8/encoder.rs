@@ -1,17 +1,48 @@
-//! VP8 video encoder
+//! VP8 video encoder using libvpx
+//!
+//! This module provides a complete VP8 encoder implementation using the libvpx library.
+//! The vpx-sys crate provides FFI bindings to libvpx.
+//!
+//! # System Requirements
+//!
+//! libvpx must be installed on the system:
+//! - Debian/Ubuntu: `apt install libvpx-dev`
+//! - Arch Linux: `pacman -S libvpx`
+//! - macOS: `brew install libvpx`
+//! - Fedora: `dnf install libvpx-devel`
 
 use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, PixelFormat};
+use crate::util::{Buffer, PixelFormat, Rational, Timestamp};
+use std::ptr;
+
+#[cfg(feature = "vp8-codec")]
+use vpx_sys::*;
+
+/// Rate control mode for the encoder
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RateControlMode {
+    /// Variable Bitrate mode
+    VBR,
+    /// Constant Bitrate mode
+    CBR,
+    /// Constrained Quality mode
+    CQ,
+}
 
 /// VP8 encoder configuration
+#[derive(Debug, Clone)]
 pub struct Vp8EncoderConfig {
     pub width: u32,
     pub height: u32,
     pub bitrate: u32,
-    pub framerate: u32,
+    pub framerate: Rational,
     pub keyframe_interval: u32,
+    pub threads: u32,
+    pub rc_mode: RateControlMode,
+    /// Target quality (0-63, lower is better)
+    pub quality: u32,
 }
 
 impl Default for Vp8EncoderConfig {
@@ -20,23 +51,37 @@ impl Default for Vp8EncoderConfig {
             width: 640,
             height: 480,
             bitrate: 1_000_000,
-            framerate: 30,
+            framerate: Rational::new(30, 1),
             keyframe_interval: 60,
+            threads: 0, // auto-detect
+            rc_mode: RateControlMode::VBR,
+            quality: 20,
         }
     }
 }
 
-/// VP8 video encoder
+/// VP8 video encoder wrapping libvpx
 ///
-/// This is a placeholder implementation showing the API structure.
-/// Full implementation would use libvpx or a pure Rust VP8 encoder.
+/// This encoder uses libvpx's VP8 encoder interface to encode VP8 video streams.
+#[cfg(feature = "vp8-codec")]
 pub struct Vp8Encoder {
+    /// libvpx encoder context
+    ctx: vpx_codec_ctx_t,
+    /// libvpx image for input frames
+    img: vpx_image_t,
+    /// Encoder configuration
     config: Vp8EncoderConfig,
+    /// Whether the encoder has been initialized
+    initialized: bool,
+    /// Frame counter
     frame_count: u64,
+    /// Buffered packets waiting to be retrieved
+    packet_buffer: Vec<Packet>,
 }
 
+#[cfg(feature = "vp8-codec")]
 impl Vp8Encoder {
-    /// Create a new VP8 encoder
+    /// Create a new VP8 encoder with default settings
     pub fn new(width: u32, height: u32) -> Result<Self> {
         let config = Vp8EncoderConfig {
             width,
@@ -48,44 +93,287 @@ impl Vp8Encoder {
 
     /// Create a VP8 encoder with custom configuration
     pub fn with_config(config: Vp8EncoderConfig) -> Result<Self> {
-        Ok(Vp8Encoder {
-            config,
-            frame_count: 0,
-        })
+        unsafe {
+            // Get VP8 encoder interface
+            let iface = vpx_codec_vp8_cx();
+            if iface.is_null() {
+                return Err(Error::codec("Failed to get VP8 encoder interface"));
+            }
+
+            // Initialize encoder configuration
+            let mut cfg: vpx_codec_enc_cfg_t = std::mem::zeroed();
+
+            // Get default configuration
+            let ret = vpx_codec_enc_config_default(iface, &mut cfg, 0);
+            if ret != VPX_CODEC_OK {
+                return Err(Error::codec(format!(
+                    "Failed to get default VP8 encoder config: {}",
+                    ret
+                )));
+            }
+
+            // Set configuration parameters
+            cfg.g_w = config.width;
+            cfg.g_h = config.height;
+            cfg.g_timebase.num = config.framerate.den as i32;
+            cfg.g_timebase.den = config.framerate.num as i32;
+            cfg.rc_target_bitrate = config.bitrate / 1000; // kbps
+            cfg.g_threads = config.threads;
+            cfg.g_lag_in_frames = 0; // No frame buffering for low latency
+
+            // Rate control mode
+            cfg.rc_end_usage = match config.rc_mode {
+                RateControlMode::VBR => vpx_rc_mode::VPX_VBR,
+                RateControlMode::CBR => vpx_rc_mode::VPX_CBR,
+                RateControlMode::CQ => vpx_rc_mode::VPX_CQ,
+            };
+
+            // Quality settings
+            cfg.rc_min_quantizer = config.quality.min(63);
+            cfg.rc_max_quantizer = 63;
+
+            // Keyframe settings
+            cfg.kf_mode = vpx_kf_mode::VPX_KF_AUTO;
+            cfg.kf_max_dist = config.keyframe_interval;
+
+            // Initialize encoder context
+            let mut ctx: vpx_codec_ctx_t = std::mem::zeroed();
+            let ret = vpx_codec_enc_init_ver(
+                &mut ctx,
+                iface,
+                &cfg,
+                0, // flags
+                VPX_ENCODER_ABI_VERSION as i32,
+            );
+
+            if ret != VPX_CODEC_OK {
+                let error_str = if !ctx.err_detail.is_null() {
+                    std::ffi::CStr::from_ptr(ctx.err_detail)
+                        .to_string_lossy()
+                        .into_owned()
+                } else {
+                    format!("Error code: {}", ret)
+                };
+                return Err(Error::codec(format!(
+                    "Failed to initialize VP8 encoder: {}",
+                    error_str
+                )));
+            }
+
+            // Create image for input frames (YUV420P)
+            let img = vpx_img_alloc(
+                ptr::null_mut(),
+                vpx_img_fmt::VPX_IMG_FMT_I420,
+                config.width,
+                config.height,
+                1, // alignment
+            );
+
+            if img.is_null() {
+                vpx_codec_destroy(&mut ctx);
+                return Err(Error::codec("Failed to allocate VP8 image"));
+            }
+
+            Ok(Vp8Encoder {
+                ctx,
+                img: *img,
+                config,
+                initialized: true,
+                frame_count: 0,
+                packet_buffer: Vec::new(),
+            })
+        }
     }
 
-    /// Set target bitrate
+    /// Set target bitrate (in bits per second)
     pub fn set_bitrate(&mut self, bitrate: u32) {
         self.config.bitrate = bitrate;
     }
 
-    /// Encode a video frame
-    fn encode_frame(&mut self, _video_frame: &VideoFrame) -> Result<Buffer> {
-        // Placeholder for VP8 encoding
-        // Real implementation would:
-        // 1. Convert frame to VP8-compatible format (YUV420)
-        // 2. Encode using libvpx encoder
-        // 3. Return compressed bitstream
+    /// Copy VideoFrame data to vpx image
+    fn copy_frame_to_image(&mut self, video_frame: &VideoFrame) -> Result<()> {
+        // Validate format - VP8 expects YUV420P
+        if video_frame.format != PixelFormat::YUV420P {
+            return Err(Error::codec(format!(
+                "VP8 encoder expects YUV420P, got {:?}",
+                video_frame.format
+            )));
+        }
 
-        Err(Error::unsupported(
-            "VP8 encoding requires libvpx integration - not yet fully implemented"
-        ))
+        // Validate dimensions
+        if video_frame.width != self.config.width || video_frame.height != self.config.height {
+            return Err(Error::codec(format!(
+                "Frame dimensions {}x{} don't match encoder {}x{}",
+                video_frame.width, video_frame.height, self.config.width, self.config.height
+            )));
+        }
+
+        unsafe {
+            // Copy Y plane
+            let y_src = video_frame.data[0].as_slice();
+            let y_dst = std::slice::from_raw_parts_mut(
+                self.img.planes[0],
+                (self.img.stride[0] as u32 * self.config.height) as usize,
+            );
+            let y_src_stride = video_frame.linesize[0];
+            let y_dst_stride = self.img.stride[0] as usize;
+
+            for y in 0..self.config.height as usize {
+                let src_start = y * y_src_stride;
+                let src_end = src_start + self.config.width as usize;
+                let dst_start = y * y_dst_stride;
+                let dst_end = dst_start + self.config.width as usize;
+
+                if src_end <= y_src.len() && dst_end <= y_dst.len() {
+                    y_dst[dst_start..dst_end].copy_from_slice(&y_src[src_start..src_end]);
+                }
+            }
+
+            // Copy U and V planes (half resolution for 4:2:0)
+            let uv_height = (self.config.height / 2) as usize;
+            let uv_width = (self.config.width / 2) as usize;
+
+            // U plane
+            let u_src = video_frame.data[1].as_slice();
+            let u_dst = std::slice::from_raw_parts_mut(
+                self.img.planes[1],
+                (self.img.stride[1] as u32 * (self.config.height / 2)) as usize,
+            );
+            let u_src_stride = video_frame.linesize[1];
+            let u_dst_stride = self.img.stride[1] as usize;
+
+            for y in 0..uv_height {
+                let src_start = y * u_src_stride;
+                let src_end = src_start + uv_width;
+                let dst_start = y * u_dst_stride;
+                let dst_end = dst_start + uv_width;
+
+                if src_end <= u_src.len() && dst_end <= u_dst.len() {
+                    u_dst[dst_start..dst_end].copy_from_slice(&u_src[src_start..src_end]);
+                }
+            }
+
+            // V plane
+            let v_src = video_frame.data[2].as_slice();
+            let v_dst = std::slice::from_raw_parts_mut(
+                self.img.planes[2],
+                (self.img.stride[2] as u32 * (self.config.height / 2)) as usize,
+            );
+            let v_src_stride = video_frame.linesize[2];
+            let v_dst_stride = self.img.stride[2] as usize;
+
+            for y in 0..uv_height {
+                let src_start = y * v_src_stride;
+                let src_end = src_start + uv_width;
+                let dst_start = y * v_dst_stride;
+                let dst_end = dst_start + uv_width;
+
+                if src_end <= v_src.len() && dst_end <= v_dst.len() {
+                    v_dst[dst_start..dst_end].copy_from_slice(&v_src[src_start..src_end]);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve all available encoded packets
+    fn retrieve_packets(&mut self) -> Result<()> {
+        unsafe {
+            let mut iter: vpx_codec_iter_t = ptr::null_mut();
+
+            loop {
+                let pkt = vpx_codec_get_cx_data(&mut self.ctx, &mut iter);
+                if pkt.is_null() {
+                    break;
+                }
+
+                let pkt_ref = &*pkt;
+
+                // Only process frame packets
+                if pkt_ref.kind == vpx_codec_cx_pkt_kind::VPX_CODEC_CX_FRAME_PKT {
+                    let frame_pkt = &pkt_ref.data.frame;
+
+                    // Copy packet data
+                    let data = std::slice::from_raw_parts(
+                        frame_pkt.buf as *const u8,
+                        frame_pkt.sz as usize,
+                    );
+
+                    let packet = Packet {
+                        data: Buffer::from_vec(data.to_vec()),
+                        pts: Timestamp::new(frame_pkt.pts),
+                        dts: Timestamp::new(frame_pkt.pts), // VP8 has no B-frames, PTS == DTS
+                        duration: 1, // Duration of one frame
+                        is_keyframe: (frame_pkt.flags & VPX_FRAME_IS_KEY) != 0,
+                        stream_index: 0,
+                    };
+
+                    self.packet_buffer.push(packet);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
+#[cfg(feature = "vp8-codec")]
+impl Drop for Vp8Encoder {
+    fn drop(&mut self) {
+        if self.initialized {
+            unsafe {
+                vpx_img_free(&mut self.img);
+                vpx_codec_destroy(&mut self.ctx);
+            }
+            self.initialized = false;
+        }
+    }
+}
+
+#[cfg(feature = "vp8-codec")]
+impl Default for Vp8Encoder {
+    fn default() -> Self {
+        Self::new(640, 480).expect("Failed to create default VP8 encoder")
+    }
+}
+
+#[cfg(feature = "vp8-codec")]
 impl Encoder for Vp8Encoder {
     fn send_frame(&mut self, frame: &Frame) -> Result<()> {
         match frame {
             Frame::Video(video_frame) => {
-                // Validate pixel format
-                if video_frame.format != PixelFormat::YUV420P {
-                    return Err(Error::codec(format!(
-                        "VP8 encoder expects YUV420P, got {:?}",
-                        video_frame.format
-                    )));
+                // Copy frame data to vpx image
+                self.copy_frame_to_image(video_frame)?;
+
+                unsafe {
+                    // Encode the frame
+                    let ret = vpx_codec_encode(
+                        &mut self.ctx,
+                        &self.img,
+                        self.frame_count as i64,
+                        1, // duration
+                        0, // flags
+                        VPX_DL_REALTIME as u64, // deadline
+                    );
+
+                    if ret != VPX_CODEC_OK {
+                        let error_str = if !self.ctx.err_detail.is_null() {
+                            std::ffi::CStr::from_ptr(self.ctx.err_detail)
+                                .to_string_lossy()
+                                .into_owned()
+                        } else {
+                            format!("Error code: {}", ret)
+                        };
+                        return Err(Error::codec(format!("VP8 encoding failed: {}", error_str)));
+                    }
+
+                    self.frame_count += 1;
+
+                    // Retrieve encoded packets
+                    self.retrieve_packets()?;
                 }
 
-                self.frame_count += 1;
                 Ok(())
             }
             Frame::Audio(_) => Err(Error::codec("VP8 encoder only accepts video frames")),
@@ -93,12 +381,82 @@ impl Encoder for Vp8Encoder {
     }
 
     fn receive_packet(&mut self) -> Result<Packet> {
-        // Placeholder - would return encoded VP8 packets
-        Err(Error::TryAgain)
+        if self.packet_buffer.is_empty() {
+            return Err(Error::TryAgain);
+        }
+
+        Ok(self.packet_buffer.remove(0))
     }
 
     fn flush(&mut self) -> Result<()> {
+        unsafe {
+            // Flush the encoder
+            let ret = vpx_codec_encode(
+                &mut self.ctx,
+                ptr::null(),
+                -1, // pts
+                1,  // duration
+                0,  // flags
+                VPX_DL_REALTIME as u64,
+            );
+
+            if ret != VPX_CODEC_OK {
+                let error_str = if !self.ctx.err_detail.is_null() {
+                    std::ffi::CStr::from_ptr(self.ctx.err_detail)
+                        .to_string_lossy()
+                        .into_owned()
+                } else {
+                    format!("Error code: {}", ret)
+                };
+                return Err(Error::codec(format!("VP8 flush failed: {}", error_str)));
+            }
+
+            // Retrieve any remaining packets
+            self.retrieve_packets()?;
+        }
+
         Ok(())
+    }
+}
+
+// Stub implementation when vp8-codec feature is not enabled
+#[cfg(not(feature = "vp8-codec"))]
+pub struct Vp8Encoder {
+    _private: (),
+}
+
+#[cfg(not(feature = "vp8-codec"))]
+#[allow(dead_code)]
+pub struct Vp8EncoderConfig {
+    _private: (),
+}
+
+#[cfg(not(feature = "vp8-codec"))]
+impl Vp8Encoder {
+    pub fn new(_width: u32, _height: u32) -> Result<Self> {
+        Err(Error::unsupported(
+            "VP8 codec support not enabled. Enable the 'vp8-codec' feature and ensure libvpx is installed."
+        ))
+    }
+
+    #[allow(dead_code)]
+    pub fn with_config(_config: Vp8EncoderConfig) -> Result<Self> {
+        Err(Error::unsupported("VP8 codec not enabled"))
+    }
+}
+
+#[cfg(not(feature = "vp8-codec"))]
+impl Encoder for Vp8Encoder {
+    fn send_frame(&mut self, _frame: &Frame) -> Result<()> {
+        Err(Error::unsupported("VP8 codec not enabled"))
+    }
+
+    fn receive_packet(&mut self) -> Result<Packet> {
+        Err(Error::unsupported("VP8 codec not enabled"))
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        Err(Error::unsupported("VP8 codec not enabled"))
     }
 }
 
@@ -107,21 +465,45 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "vp8-codec")]
     fn test_vp8_encoder_creation() {
         let encoder = Vp8Encoder::new(640, 480);
-        assert!(encoder.is_ok());
+        assert!(
+            encoder.is_ok(),
+            "Encoder creation failed. Make sure libvpx is installed."
+        );
     }
 
     #[test]
+    #[cfg(feature = "vp8-codec")]
     fn test_vp8_encoder_with_config() {
         let config = Vp8EncoderConfig {
             width: 1920,
             height: 1080,
             bitrate: 5_000_000,
-            framerate: 60,
+            framerate: Rational::new(60, 1),
             keyframe_interval: 120,
+            ..Default::default()
         };
         let encoder = Vp8Encoder::with_config(config);
-        assert!(encoder.is_ok());
+        assert!(
+            encoder.is_ok(),
+            "Encoder creation failed. Make sure libvpx is installed."
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "vp8-codec")]
+    fn test_flush() {
+        let mut encoder = Vp8Encoder::new(640, 480).expect("Failed to create encoder");
+        // Flush should not error
+        assert!(encoder.flush().is_ok());
+    }
+
+    #[test]
+    #[cfg(not(feature = "vp8-codec"))]
+    fn test_vp8_disabled() {
+        let encoder = Vp8Encoder::new(640, 480);
+        assert!(encoder.is_err());
     }
 }
