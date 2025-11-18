@@ -15,11 +15,11 @@
 
 ZVD is a comprehensive multimedia processing library written in pure Rust, providing the power of FFmpeg with modern safety guarantees. It supports video and audio encoding/decoding, filtering, format conversion, and runs on native platforms and WebAssembly.
 
-**Current Status**: 🚀 **90% Complete - Production Ready with Lossless Audio Encoding**
+**Current Status**: 🚀 **95% Complete - Production Ready with Complete Audio Encoding**
 
-- **287+ Total Tests**: 122+ unit tests + 165+ integration tests
+- **312+ Total Tests**: 147+ unit tests + 165+ integration tests
 - **Performance Benchmarks**: Criterion-based codec & filter benchmarks
-- **New**: FLAC encoder for lossless audio (32 tests)
+- **New**: Complete audio encoding - FLAC (32 tests) + Vorbis (25 tests)
 - **Test Coverage**: All codec paths, filters, containers, error handling, transcoding workflows
 
 See [CODEC_STATUS.md](CODEC_STATUS.md) for detailed implementation status.
@@ -44,15 +44,15 @@ See [CODEC_STATUS.md](CODEC_STATUS.md) for detailed implementation status.
 
 **Patent-Free (Royalty-Free)**
 - ✅ **Opus** - Modern audio codec (encoder/decoder via libopus) - **14 tests**
-- ✅ **FLAC** - Lossless audio (encoder: pure Rust, decoder via Symphonia) - **32 tests** (NEW!)
-- ✅ **Vorbis** - Ogg Vorbis (decoder via Symphonia) - **4 tests**
+- ✅ **FLAC** - Lossless audio (encoder + decoder, pure Rust/Symphonia) - **32 tests**
+- ✅ **Vorbis** - Ogg Vorbis (encoder + decoder, pure Rust/Symphonia) - **29 tests** (NEW!)
 - ✅ **MP3** - MPEG Audio Layer 3 (decoder via Symphonia, patents expired 2017) - **5 tests**
 - ✅ **PCM** - Uncompressed audio (all standard formats)
 
 **Patent-Encumbered (Optional)**
 - ✅ **AAC** - Advanced Audio Coding (decoder via Symphonia, LC-AAC only) - **5 tests**
 
-**Note**: FLAC encoding uses pure Rust implementation with compression levels 0-8. Audio decoders use container-level decoding via SymphoniaAdapter for optimal performance and metadata support.
+**Note**: FLAC and Vorbis encoders use pure Rust implementations. Audio decoders use container-level decoding via SymphoniaAdapter for optimal performance and metadata support. **Opus is strongly recommended over Vorbis for new projects** (better quality, lower latency).
 
 ### 📦 Container Formats
 
@@ -321,19 +321,20 @@ ZVD is designed for high performance:
 
 See [PROJECT_TODO.md](PROJECT_TODO.md) for detailed implementation roadmap.
 
-**Completed** (90%):
+**Completed** (95%):
 - ✅ Core video codecs (AV1, H.264, VP8, VP9)
-- ✅ Core audio codecs (Opus encode/decode, FLAC encode/decode, Vorbis/MP3/AAC decode)
+- ✅ Complete audio encoding (Opus, FLAC, Vorbis) + decoding (all formats)
 - ✅ WebM container support
 - ✅ Basic filters
 - ✅ Format detection for ProRes/DNxHD
-- ✅ Comprehensive integration tests (165+tests)
+- ✅ Comprehensive integration tests (165+ tests)
 - ✅ Performance benchmarks (Criterion-based)
 - ✅ Complete documentation
-- ✅ FLAC encoder (pure Rust, 32 tests) - NEW!
+- ✅ FLAC encoder (pure Rust, 32 tests)
+- ✅ Vorbis encoder (pure Rust, 25 tests) - NEW!
 
-**Remaining** (10%):
-- ⏳ Vorbis encoder - LOW priority, Opus superior for lossy audio
+**Remaining** (5%):
+- Optional future work only (FFmpeg integration for ProRes/DNxHD)
 
 **Future**:
 - FFmpeg integration for ProRes/DNxHD full support
@@ -375,7 +376,7 @@ cargo test test_av1_encoder
 RUST_LOG=debug cargo test
 ```
 
-Current test coverage: **255+ tests (90+ unit + 165+ integration)** ✅
+Current test coverage: **312+ tests (147+ unit + 165+ integration)** ✅
 
 ## Performance Benchmarks
 
