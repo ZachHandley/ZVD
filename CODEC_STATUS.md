@@ -38,14 +38,21 @@ ZVD is a Rust-based multimedia processing library reimplementing FFmpeg function
 
 **Note**: MP3 and AAC decoders use container-level decoding via `SymphoniaAdapter` (253 lines, already implemented). FLAC (383 lines) and Vorbis (420 lines) encoders use pure Rust implementations. **Opus is strongly recommended over Vorbis for new projects** (better quality, lower latency, more features).
 
-### ⚠️ Professional Codecs - Header Parsing Only
+### 🚧 Professional Codecs - Pure Rust Implementation Planned
 
-| Codec | Status | What's Implemented | What's Missing |
-|-------|--------|-------------------|----------------|
-| **ProRes** | Partial | Header parsing, all profiles, metadata | Full encode/decode (needs FFmpeg) |
-| **DNxHD/DNxHR** | Partial | Header parsing, all CIDs, profiles | Full encode/decode (needs FFmpeg) |
+| Codec | Status | What's Implemented | Pure Rust Roadmap |
+|-------|--------|-------------------|-------------------|
+| **ProRes** | Partial | Header parsing, all profiles, metadata | ~8,000-12,000 lines (DCT, VLC, quantization) |
+| **DNxHD/DNxHR** | Partial | Header parsing, all CIDs, profiles | ~6,000-10,000 lines (wavelet, CID encoding) |
+| **H.265/HEVC** | Planned | None yet | ~15,000-20,000 lines (full spec implementation) |
 
-**Rationale**: ProRes and DNxHD are extremely complex professional codecs. Implementing from scratch would require 5,000-10,000 lines per codec and months of work. Header parsing provides format detection and metadata extraction, which covers many use cases. Full codec support can be added via FFmpeg integration when needed.
+**Vision**: ZVD aims to reimplement these codecs in **pure Rust**, breaking free from licensing restrictions and proprietary implementations. This provides:
+- **No licensing fees** - Open-source implementations free from MPEG-LA and vendor lock-in
+- **Memory safety** - Rust's guarantees prevent the security vulnerabilities plaguing C implementations
+- **Modern optimization** - Leverage SIMD, multi-threading, and modern CPU features
+- **Open standards** - Fully documented, auditable codec implementations
+
+**Current Status**: Header parsing complete for ProRes/DNxHD. Full codec implementation is a significant undertaking but aligns with ZVD's mission to provide FFmpeg's power in pure, safe Rust.
 
 ## Container Format Support
 
@@ -115,8 +122,9 @@ ZVD is a Rust-based multimedia processing library reimplementing FFmpeg function
   - CID handling
   - Profile detection (DNxHD vs DNxHR, 8-bit vs 10-bit, 4:2:2 vs 4:4:4)
   - 6 tests
-- **What's Missing**: Full encode/decode requires FFmpeg (libavcodec)
+- **What's Missing**: Full encode/decode (pure Rust implementation planned)
 - **Status**: Format detection and metadata extraction production-ready
+- **Future**: Complete pure Rust implementation to break vendor lock-in
 
 ### ✅ Phase 6: Audio Encoders - COMPLETE
 - **Completion Date**: 2025-11-18

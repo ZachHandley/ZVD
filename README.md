@@ -36,9 +36,10 @@ See [CODEC_STATUS.md](CODEC_STATUS.md) for detailed implementation status.
 **Patent-Encumbered (Optional)**
 - ✅ **H.264/AVC** - Industry standard (encoder/decoder via OpenH264) - **7 tests**
 
-**Professional (Header Parsing Only)**
-- ⚠️ **ProRes** - Apple professional codec (format detection, full codec requires FFmpeg)
-- ⚠️ **DNxHD/DNxHR** - Avid professional codec (format detection, full codec requires FFmpeg)
+**Professional (Pure Rust Implementation Planned)**
+- 🚧 **ProRes** - Apple professional codec (header parsing complete, pure Rust encoder/decoder planned)
+- 🚧 **DNxHD/DNxHR** - Avid professional codec (header parsing complete, pure Rust encoder/decoder planned)
+- 🎯 **H.265/HEVC** - Next-gen codec (pure Rust implementation planned - break the licensing stranglehold!)
 
 ### 🎵 Audio Codecs
 
@@ -334,13 +335,22 @@ See [PROJECT_TODO.md](PROJECT_TODO.md) for detailed implementation roadmap.
 - ✅ Vorbis encoder (pure Rust, 25 tests) - NEW!
 
 **Remaining** (5%):
-- Optional future work only (FFmpeg integration for ProRes/DNxHD)
+- Pure Rust implementations of professional/patent-encumbered codecs
 
-**Future**:
-- FFmpeg integration for ProRes/DNxHD full support
-- Additional container formats
-- Hardware acceleration
-- Streaming protocols
+**Future - Pure Rust Codec Implementations**:
+- 🎯 **H.265/HEVC** - Complete pure Rust implementation (15,000-20,000 lines)
+  - Break free from MPEG-LA licensing
+  - Modern, safe implementation with Rust's memory guarantees
+  - All profiles (Main, Main 10, Main Still Picture)
+- 🎯 **ProRes** - Complete pure Rust implementation (8,000-12,000 lines)
+  - Open alternative to Apple's closed codec
+  - All 6 profiles (Proxy, LT, Standard, HQ, 4444, 4444 XQ)
+- 🎯 **DNxHD/DNxHR** - Complete pure Rust implementation (6,000-10,000 lines)
+  - Open alternative to Avid's codec
+  - All CIDs and profiles
+- Additional container formats (MKV muxer, more)
+- Hardware acceleration (GPU encoding/decoding)
+- Streaming protocols (RTMP, HLS, DASH)
 
 ## Patent Considerations
 

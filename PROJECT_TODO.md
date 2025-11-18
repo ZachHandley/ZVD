@@ -16,7 +16,7 @@
 | **Phase 2: H.264** | ✅ Complete | 100% | OpenH264, 7 tests, security docs |
 | **Phase 3: Symphonia Audio** | ✅ Complete | 100% | FLAC/Vorbis/MP3/AAC decode, 20 tests |
 | **Phase 4: VP8/VP9/Opus** | ✅ Complete | 100% | WebM stack, 34+ tests |
-| **Phase 5: ProRes/DNxHD** | ⚠️ Partial | 40% | Header parsing done, full codec needs FFmpeg |
+| **Phase 5: ProRes/DNxHD** | ⚠️ Partial | 40% | Header parsing done, pure Rust codec planned |
 | **Phase 6: Audio Encoders** | ✅ Complete | 100% | FLAC (32 tests) + Vorbis (25 tests) encoders complete |
 | **Phase 7: Integration & Docs** | ✅ Complete | 100% | Core docs + 165 integration tests + benchmarks complete |
 
@@ -857,16 +857,43 @@ The current implementation provides:
 - ✅ **Profile Information**: Query codec characteristics
 - ✅ **Foundation**: Ready to integrate FFmpeg when needed
 
-### Future Work
+### Future Work - Pure Rust Codec Implementations
 
-To enable full ProRes/DNxHD support:
-1. Add `ffmpeg-next` or `ac-ffmpeg` dependency (optional feature)
-2. Create FFmpeg codec adapter module
-3. Wire up decoder/encoder to use libavcodec
-4. Add integration tests with real ProRes/DNxHD files
-5. Document FFmpeg system requirements
+To enable full ProRes/DNxHD/H.265 support in pure Rust:
 
-**Phase 5 Status**: Header parsing and format structures complete. Full codec implementation deferred pending FFmpeg integration (optional dependency for professional workflows).
+**Phase 8: H.265/HEVC Pure Rust Implementation** (Highest Priority)
+1. Research H.265 specification and reference implementations
+2. Implement core transform coding (DCT/DST, 4x4 to 32x32)
+3. Implement intra prediction (35 directional modes)
+4. Implement inter prediction with motion compensation
+5. Implement CABAC entropy coding
+6. Implement in-loop filters (deblocking, SAO)
+7. Implement all profiles (Main, Main 10, Main Still Picture)
+8. Comprehensive testing and validation
+**Estimated**: 15,000-20,000 lines, 6-12 months development
+
+**Phase 9: ProRes Pure Rust Implementation**
+1. Research ProRes specification (reverse-engineered docs available)
+2. Implement intra-frame DCT coding
+3. Implement Variable Length Coding (VLC)
+4. Implement profile-specific quantization matrices
+5. Implement alpha channel support
+6. Implement all 6 profiles (Proxy → 4444 XQ)
+7. Testing with reference ProRes files
+**Estimated**: 8,000-12,000 lines, 4-8 months development
+
+**Phase 10: DNxHD/DNxHR Pure Rust Implementation**
+1. Research DNxHD/DNxHR specification
+2. Implement wavelet-based compression
+3. Implement CID-specific encoding parameters
+4. Implement 8-bit and 10-bit support
+5. Implement DNxHR high-resolution variants
+6. Testing with reference DNxHD files
+**Estimated**: 6,000-10,000 lines, 3-6 months development
+
+**Phase 5 Status**: Header parsing and format structures complete. Full codec implementation planned as pure Rust to break free from licensing restrictions and vendor lock-in.
+
+**Pure Rust Vision**: ZVD will implement ProRes, DNxHD, and H.265/HEVC entirely in Rust, providing open-source alternatives to proprietary/patent-encumbered codecs.
 
 ---
 
@@ -1137,7 +1164,7 @@ Vorbis encoder is provided for compatibility with existing Ogg Vorbis workflows.
 - ✅ Commercial deployment with proper licensing guidance
 
 **Current Limitations**:
-- ⏳ ProRes/DNxHD full codec support requires FFmpeg integration (optional future work)
+- 🚧 ProRes/DNxHD/H.265 full codec support pending pure Rust implementation (major future work)
 
 **Overall Status**: **95% Complete - Production Ready for All Multimedia Use Cases**
 
