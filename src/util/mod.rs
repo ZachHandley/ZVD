@@ -7,6 +7,7 @@ pub mod colorspace;
 pub mod buffer;
 pub mod pixfmt;
 pub mod samplefmt;
+pub mod thumbnail;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -15,6 +16,9 @@ pub use colorspace::{ColorConverter, ColorRange, ColorStandard, Hsv, Rgb, Yuv};
 pub use buffer::{Buffer, BufferRef};
 pub use pixfmt::PixelFormat;
 pub use samplefmt::SampleFormat;
+pub use thumbnail::{
+    FrameData, FrameQuality, SceneDetector, ThumbnailGenerator, ThumbnailMethod,
+};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
