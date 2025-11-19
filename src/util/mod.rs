@@ -17,6 +17,7 @@ pub mod tenbit;
 pub mod edl;
 pub mod stabilization;
 pub mod burnin;
+pub mod sync;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -50,6 +51,7 @@ pub use burnin::{
     BurninConfig, BurninGenerator, BurninPosition, Color as BurninColor, TimecodeFormat,
     TimecodeStyle,
 };
+pub use sync::{AudioSpike, DriftCorrector, SyncDetector, SyncMethod, SyncResult};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
