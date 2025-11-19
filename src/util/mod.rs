@@ -11,6 +11,7 @@ pub mod thumbnail;
 pub mod quality;
 pub mod lut;
 pub mod scopes;
+pub mod proxy;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -24,6 +25,10 @@ pub use thumbnail::{
 };
 pub use quality::{calculate_psnr, calculate_ssim, QualityComparison, QualityMetrics};
 pub use scopes::{Histogram, VectorscopeYUV, WaveformMode, WaveformScope};
+pub use proxy::{
+    ProxyCodec, ProxyConfig, ProxyGenerator, ProxyMetadata, ProxyPreset, ProxyQuality,
+    ProxyResolution,
+};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
