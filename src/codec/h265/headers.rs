@@ -364,15 +364,107 @@ pub struct Pps {
     /// Cabac init present flag
     pub cabac_init_present_flag: bool,
 
-    // TODO: Add more PPS fields as needed
+    /// Number of reference index for L0 minus 1
+    pub num_ref_idx_l0_default_active_minus1: u8,
+    /// Number of reference index for L1 minus 1
+    pub num_ref_idx_l1_default_active_minus1: u8,
+
+    /// Initial QP minus 26 (-26 to +25)
+    pub init_qp_minus26: i8,
+
+    /// Constrained intra prediction flag
+    pub constrained_intra_pred_flag: bool,
+    /// Transform skip enabled flag
+    pub transform_skip_enabled_flag: bool,
+
+    // TODO: Add more PPS fields as needed (tiles, weighted prediction, etc.)
 }
 
 impl Pps {
     /// Parse PPS from RBSP data
-    pub fn parse(_rbsp: &[u8]) -> Result<Self> {
-        // TODO: Implement full PPS parsing
-        // For now, return a placeholder
-        Err(Error::codec("PPS parsing not yet implemented"))
+    pub fn parse(rbsp: &[u8]) -> Result<Self> {
+        let mut reader = BitstreamReader::new(rbsp);
+
+        // Read PPS ID (ue(v), range 0-63)
+        let pps_pic_parameter_set_id = reader.read_ue()? as u8;
+        if pps_pic_parameter_set_id > 63 {
+            return Err(Error::codec(format!("Invalid PPS ID: {}", pps_pic_parameter_set_id)));
+        }
+
+        // Read SPS ID (ue(v), range 0-15)
+        let pps_seq_parameter_set_id = reader.read_ue()? as u8;
+        if pps_seq_parameter_set_id > 15 {
+            return Err(Error::codec(format!("Invalid SPS ID in PPS: {}", pps_seq_parameter_set_id)));
+        }
+
+        // Read dependent slice segments enabled flag (1 bit)
+        let dependent_slice_segments_enabled_flag = reader.read_bool()?;
+
+        // Read output flag present flag (1 bit)
+        let output_flag_present_flag = reader.read_bool()?;
+
+        // Read number of extra slice header bits (3 bits)
+        let num_extra_slice_header_bits = reader.read_bits(3)? as u8;
+
+        // Read sign data hiding enabled flag (1 bit)
+        let sign_data_hiding_enabled_flag = reader.read_bool()?;
+
+        // Read cabac init present flag (1 bit)
+        let cabac_init_present_flag = reader.read_bool()?;
+
+        // Read num_ref_idx_l0_default_active_minus1 (ue(v), range 0-14)
+        let num_ref_idx_l0_default_active_minus1 = reader.read_ue()? as u8;
+        if num_ref_idx_l0_default_active_minus1 > 14 {
+            return Err(Error::codec("num_ref_idx_l0_default_active_minus1 out of range"));
+        }
+
+        // Read num_ref_idx_l1_default_active_minus1 (ue(v), range 0-14)
+        let num_ref_idx_l1_default_active_minus1 = reader.read_ue()? as u8;
+        if num_ref_idx_l1_default_active_minus1 > 14 {
+            return Err(Error::codec("num_ref_idx_l1_default_active_minus1 out of range"));
+        }
+
+        // Read init_qp_minus26 (se(v), range -26 to +25)
+        let init_qp_minus26 = reader.read_se()?;
+        if init_qp_minus26 < -26 || init_qp_minus26 > 25 {
+            return Err(Error::codec(format!("init_qp_minus26 out of range: {}", init_qp_minus26)));
+        }
+
+        // Read constrained_intra_pred_flag (1 bit)
+        let constrained_intra_pred_flag = reader.read_bool()?;
+
+        // Read transform_skip_enabled_flag (1 bit)
+        let transform_skip_enabled_flag = reader.read_bool()?;
+
+        // For Phase 8.1, we've read the most critical PPS fields
+        // Full parsing would continue with:
+        // - cu_qp_delta_enabled_flag and diff_cu_qp_delta_depth
+        // - pps_cb_qp_offset and pps_cr_qp_offset
+        // - pps_slice_chroma_qp_offsets_present_flag
+        // - weighted_pred_flag and weighted_bipred_flag
+        // - transquant_bypass_enabled_flag
+        // - tiles_enabled_flag and tile parameters
+        // - pps_loop_filter_across_slices_enabled_flag
+        // - deblocking_filter parameters
+        // - pps_scaling_list_data_present_flag
+        // - lists_modification_present_flag
+        // - log2_parallel_merge_level_minus2
+        // - slice_segment_header_extension_present_flag
+
+        Ok(Pps {
+            pps_pic_parameter_set_id,
+            pps_seq_parameter_set_id,
+            dependent_slice_segments_enabled_flag,
+            output_flag_present_flag,
+            num_extra_slice_header_bits,
+            sign_data_hiding_enabled_flag,
+            cabac_init_present_flag,
+            num_ref_idx_l0_default_active_minus1,
+            num_ref_idx_l1_default_active_minus1,
+            init_qp_minus26: init_qp_minus26 as i8,
+            constrained_intra_pred_flag,
+            transform_skip_enabled_flag,
+        })
     }
 }
 
@@ -635,5 +727,245 @@ mod tests {
 
         let result = Vps::parse(&vps_data);
         assert!(result.is_ok()); // ID=15 is valid
+    }
+
+    #[test]
+    fn test_pps_parsing_basic() {
+        // Build minimal PPS bitstream
+        let mut bits = Vec::new();
+
+        // pps_pic_parameter_set_id = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // pps_seq_parameter_set_id = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // dependent_slice_segments_enabled_flag = 0 (1 bit)
+        bits.push(false);
+
+        // output_flag_present_flag = 0 (1 bit)
+        bits.push(false);
+
+        // num_extra_slice_header_bits = 0 (3 bits)
+        bits.extend_from_slice(&[false, false, false]);
+
+        // sign_data_hiding_enabled_flag = 0 (1 bit)
+        bits.push(false);
+
+        // cabac_init_present_flag = 0 (1 bit)
+        bits.push(false);
+
+        // num_ref_idx_l0_default_active_minus1 = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // num_ref_idx_l1_default_active_minus1 = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // init_qp_minus26 = 0 (se(v)): "1"
+        bits.push(true);
+
+        // constrained_intra_pred_flag = 0 (1 bit)
+        bits.push(false);
+
+        // transform_skip_enabled_flag = 0 (1 bit)
+        bits.push(false);
+
+        // Convert to bytes
+        let mut pps_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                pps_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            pps_data.push(byte);
+        }
+
+        // Parse PPS
+        let pps = Pps::parse(&pps_data).expect("Should parse basic PPS");
+
+        // Verify
+        assert_eq!(pps.pps_pic_parameter_set_id, 0);
+        assert_eq!(pps.pps_seq_parameter_set_id, 0);
+        assert_eq!(pps.dependent_slice_segments_enabled_flag, false);
+        assert_eq!(pps.output_flag_present_flag, false);
+        assert_eq!(pps.num_extra_slice_header_bits, 0);
+        assert_eq!(pps.sign_data_hiding_enabled_flag, false);
+        assert_eq!(pps.cabac_init_present_flag, false);
+        assert_eq!(pps.num_ref_idx_l0_default_active_minus1, 0);
+        assert_eq!(pps.num_ref_idx_l1_default_active_minus1, 0);
+        assert_eq!(pps.init_qp_minus26, 0);
+        assert_eq!(pps.constrained_intra_pred_flag, false);
+        assert_eq!(pps.transform_skip_enabled_flag, false);
+    }
+
+    #[test]
+    fn test_pps_parsing_with_features() {
+        // Build PPS with various features enabled
+        let mut bits = Vec::new();
+
+        // pps_pic_parameter_set_id = 1 (ue(v)): "010"
+        bits.extend_from_slice(&[false, true, false]);
+
+        // pps_seq_parameter_set_id = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // dependent_slice_segments_enabled_flag = 1
+        bits.push(true);
+
+        // output_flag_present_flag = 1
+        bits.push(true);
+
+        // num_extra_slice_header_bits = 3 (3 bits: 011)
+        bits.extend_from_slice(&[false, true, true]);
+
+        // sign_data_hiding_enabled_flag = 1
+        bits.push(true);
+
+        // cabac_init_present_flag = 1
+        bits.push(true);
+
+        // num_ref_idx_l0_default_active_minus1 = 3 (ue(v)): "00100"
+        bits.extend_from_slice(&[false, false, true, false, false]);
+
+        // num_ref_idx_l1_default_active_minus1 = 2 (ue(v)): "011"
+        bits.extend_from_slice(&[false, true, true]);
+
+        // init_qp_minus26 = -4 (se(v) for -4 is ue(8)): "000010000"
+        bits.extend_from_slice(&[false, false, false, false, true, false, false, false, false]);
+
+        // constrained_intra_pred_flag = 1
+        bits.push(true);
+
+        // transform_skip_enabled_flag = 1
+        bits.push(true);
+
+        // Convert to bytes
+        let mut pps_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                pps_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            pps_data.push(byte);
+        }
+
+        // Parse PPS
+        let pps = Pps::parse(&pps_data).expect("Should parse PPS with features");
+
+        // Verify
+        assert_eq!(pps.pps_pic_parameter_set_id, 1);
+        assert_eq!(pps.pps_seq_parameter_set_id, 0);
+        assert_eq!(pps.dependent_slice_segments_enabled_flag, true);
+        assert_eq!(pps.output_flag_present_flag, true);
+        assert_eq!(pps.num_extra_slice_header_bits, 3);
+        assert_eq!(pps.sign_data_hiding_enabled_flag, true);
+        assert_eq!(pps.cabac_init_present_flag, true);
+        assert_eq!(pps.num_ref_idx_l0_default_active_minus1, 3);
+        assert_eq!(pps.num_ref_idx_l1_default_active_minus1, 2);
+        assert_eq!(pps.init_qp_minus26, -4);
+        assert_eq!(pps.constrained_intra_pred_flag, true);
+        assert_eq!(pps.transform_skip_enabled_flag, true);
+    }
+
+    #[test]
+    fn test_pps_qp_range() {
+        // Test QP at boundaries
+        let mut bits = Vec::new();
+
+        // Minimal header
+        bits.push(true); // pps_id = 0
+        bits.push(true); // sps_id = 0
+        bits.push(false); // dependent_slice_segments
+        bits.push(false); // output_flag
+        bits.extend_from_slice(&[false, false, false]); // num_extra_bits = 0
+        bits.push(false); // sign_data_hiding
+        bits.push(false); // cabac_init
+        bits.push(true); // num_ref_idx_l0 = 0
+        bits.push(true); // num_ref_idx_l1 = 0
+
+        // init_qp_minus26 = 10 (se(v) for 10 is ue(20)): "0000010100"
+        // ue(20): 4 leading zeros + 1 + 0100 (4 in binary)
+        bits.extend_from_slice(&[false, false, false, false, true, false, true, false, false]);
+
+        bits.push(false); // constrained_intra
+        bits.push(false); // transform_skip
+
+        // Convert to bytes
+        let mut pps_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                pps_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            pps_data.push(byte);
+        }
+
+        // Parse PPS
+        let pps = Pps::parse(&pps_data).expect("Should parse PPS with QP=10");
+        assert_eq!(pps.init_qp_minus26, 10);
+    }
+
+    #[test]
+    fn test_pps_invalid_id() {
+        // Create PPS with invalid PPS ID (>63)
+        // Since ue(v) can encode any value, we manually test validation
+
+        let mut bits = Vec::new();
+
+        // pps_pic_parameter_set_id = 64 (ue(v))
+        // ue(64): 64 - 1 = 63 = 0b111111 (6 bits)
+        // Need 2^6 - 1 = 63, so 64 - 63 = 1 = 0b000001
+        // 6 leading zeros + 1 + 000001
+        for _ in 0..6 { bits.push(false); }
+        bits.push(true);
+        bits.extend_from_slice(&[false, false, false, false, false, true]);
+
+        bits.push(true); // sps_id = 0
+
+        // Convert to bytes
+        let mut pps_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                pps_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            pps_data.push(byte);
+        }
+
+        // Should fail validation
+        let result = Pps::parse(&pps_data);
+        assert!(result.is_err());
     }
 }
