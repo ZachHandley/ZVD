@@ -14,6 +14,8 @@ pub mod hls;
 pub mod dash;
 pub mod rtp;
 pub mod srt;
+pub mod segmenter;
+pub mod pipeline;
 
 use crate::error::Result;
 use crate::format::Packet;
