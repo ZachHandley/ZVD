@@ -2,6 +2,14 @@
 //!
 //! This module provides segmentation capabilities for creating streaming-ready
 //! video segments (HLS .ts files, DASH .m4s files, etc).
+//!
+//! ## Features
+//!
+//! - Keyframe-aligned segmentation
+//! - MPEG-TS output format
+//! - Configurable target duration
+//! - Automatic segment boundary detection
+//! - Metadata tracking (duration, size, timestamps)
 
 use crate::error::{Error, Result};
 use crate::format::{Packet, Stream, StreamInfo};
@@ -120,9 +128,13 @@ impl Segmenter {
         // Create MPEG-TS muxer for this segment
         let mut muxer = MpegtsMuxer::new(writer);
 
-        // Add streams to muxer (streams should already be added to self.streams)
-        // Note: In a full implementation, we'd need to add streams to the muxer here
-        // For now, we'll handle this in write_packet
+        // Add all streams to the muxer
+        for stream in &self.streams {
+            muxer.add_stream(stream.clone())?;
+        }
+
+        // Write MPEG-TS header (PAT and PMT)
+        muxer.write_header()?;
 
         self.current_segment = Some(CurrentSegment {
             index: self.current_index,
@@ -138,8 +150,9 @@ impl Segmenter {
 
     /// Close the current segment
     fn close_segment(&mut self) -> Result<()> {
-        if let Some(segment) = self.current_segment.take() {
-            // Flush the muxer (drop will close the file)
+        if let Some(mut segment) = self.current_segment.take() {
+            // Write trailer and flush the muxer
+            segment.muxer.write_trailer()?;
             drop(segment.muxer);
 
             // Get file size
@@ -187,14 +200,14 @@ impl Segmenter {
             let segment = self.current_segment.as_mut().unwrap();
             segment.last_time = packet_time;
             segment.packet_count += 1;
-            // Note: In full implementation, write packet to muxer here
-            // segment.muxer.write_packet(packet)?;
+            // Write packet to the new segment's muxer
+            segment.muxer.write_packet(packet)?;
         } else {
             // Write to current segment
             segment.last_time = packet_time;
             segment.packet_count += 1;
-            // Note: In full implementation, write packet to muxer here
-            // segment.muxer.write_packet(packet)?;
+            // Write packet to muxer
+            segment.muxer.write_packet(packet)?;
         }
 
         Ok(())
