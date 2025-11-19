@@ -18,6 +18,7 @@ pub mod edl;
 pub mod stabilization;
 pub mod burnin;
 pub mod sync;
+pub mod telecine;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -52,6 +53,9 @@ pub use burnin::{
     TimecodeStyle,
 };
 pub use sync::{AudioSpike, DriftCorrector, SyncDetector, SyncMethod, SyncResult};
+pub use telecine::{
+    CadenceDetector, FieldOrder, InterlacedFrame, PulldownPattern, Telecine,
+};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
