@@ -24,6 +24,7 @@ pub mod watermark;
 pub mod alpha;
 pub mod captions;
 pub mod aspect;
+pub mod embedding;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -72,6 +73,9 @@ pub use watermark::{Watermark, WatermarkPosition, WatermarkStyle, WatermarkType}
 pub use alpha::{AlphaCompositor, AlphaMask, AlphaType, CompositeOp, RgbaFrame};
 pub use captions::{CaptionPosition, Subtitle, SubtitleFormat, SubtitleRenderer, SubtitleStyle};
 pub use aspect::{AspectRatio, AspectRatioConverter, FitMode};
+pub use embedding::{
+    ExtractionStrategy, FrameImportance, HashType, VideoEmbedding, VideoFingerprint,
+};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
