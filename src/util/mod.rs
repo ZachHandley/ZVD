@@ -20,6 +20,7 @@ pub mod burnin;
 pub mod sync;
 pub mod telecine;
 pub mod detection;
+pub mod watermark;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -61,6 +62,7 @@ pub use detection::{
     BlackFrameDetector, FadeDetector, FadeRegion, FreezeFrameDetector, FreezeRegion,
     SilenceDetector, SilentRegion,
 };
+pub use watermark::{Watermark, WatermarkPosition, WatermarkStyle, WatermarkType};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
