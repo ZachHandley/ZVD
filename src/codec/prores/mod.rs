@@ -5,22 +5,26 @@
 //!
 //! ## Implementation Status
 //!
-//! **Current State**: Header parsing and format structures implemented.
-//! **Full Decoding/Encoding**: Requires FFmpeg or similar library.
+//! **Current State**: **PURE RUST IMPLEMENTATION IN PROGRESS**
+//! **Target**: Full ProRes encoder and decoder without FFmpeg dependency!
 //!
-//! ### What's Implemented
+//! ### What's Implemented ✅
 //!
 //! - ✅ **ProRes Profile Support**: All variants (Proxy, LT, Standard, HQ, 4444, 4444 XQ)
 //! - ✅ **Frame Header Parsing**: Complete ProRes frame header structure
 //! - ✅ **FourCC Handling**: Correct identification of all ProRes types
 //! - ✅ **Metadata**: Width, height, chroma format, alpha channel detection
 //! - ✅ **Bitrate Estimation**: Approximate bitrates for all profiles
+//! - ✅ **Bitstream Reader/Writer**: Bit-level precision I/O
+//! - ✅ **VLC/Huffman Coding**: DC and AC coefficient encoding/decoding
+//! - ✅ **8×8 DCT/IDCT**: Forward and inverse transforms
+//! - ✅ **Quantization**: Profile-specific quantization matrices
 //!
-//! ### What's NOT Implemented (Requires FFmpeg)
+//! ### In Progress 🚧
 //!
-//! - ❌ **Actual Decoding**: Slice parsing, Huffman/VLC decoding, inverse DCT
-//! - ❌ **Actual Encoding**: DCT, quantization, slice encoding
-//! - ⚠️ The `decode_frame_data()` and `encode_frame_data()` functions are stubs
+//! - 🚧 **Slice Parsing/Encoding**: Frame organization and slice structures
+//! - 🚧 **Full Decoder**: Wire all components together
+//! - 🚧 **Full Encoder**: Complete encoding pipeline
 //!
 //! ## Why FFmpeg is Required
 //!
@@ -61,9 +65,17 @@
 
 pub mod encoder;
 pub mod decoder;
+pub mod bitstream;
+pub mod vlc;
+pub mod dct;
+pub mod quant;
 
 pub use encoder::ProResEncoder;
 pub use decoder::ProResDecoder;
+pub use bitstream::{ProResBitstreamReader, ProResBitstreamWriter};
+pub use vlc::{ProResDcVlc, ProResAcVlc, decode_dct_coefficients, encode_dct_coefficients};
+pub use dct::{ProResDct, FastProResDct};
+pub use quant::{QuantMatrix, ProResQuantizer, ScanOrder};
 
 /// ProRes profile variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
