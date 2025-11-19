@@ -35,7 +35,8 @@ pub mod vp9;
 pub mod prores;
 pub mod dnxhd;
 
-// Multi-pass encoding support
+// Encoding optimization
+pub mod gop;
 pub mod multipass;
 
 pub use av1::{Av1Decoder, Av1Encoder};
@@ -68,6 +69,9 @@ pub use vp9::{Vp9Decoder, Vp9Encoder};
 
 pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};
 pub use dnxhd::{DnxhdDecoder, DnxhdEncoder, DnxhdProfile};
+pub use gop::{
+    BFramePyramid, GopConfig, GopFrameType, GopManager, GopStatistics, GopStructure,
+};
 pub use multipass::{
     ComplexityAnalyzer, FrameStats, FrameType, MultiPassEncoder, PassStatistics, PassType,
     RateControlMode,
