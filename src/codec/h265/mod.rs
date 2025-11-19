@@ -46,14 +46,14 @@
 //! - [x] Coefficient scanning - diagonal/horizontal/vertical patterns (430 lines, 20 unit tests)
 //! - **Phase 8.3 Total: ~1,790 lines, 86 tests!**
 //!
-//! **Phase 8.4: Inter Prediction** (IN PROGRESS - 70%)
+//! **Phase 8.4: Inter Prediction** (IN PROGRESS - 85%)
 //! - [x] Motion vector structures (500 lines, 28 unit tests)
 //! - [x] Motion compensation with fractional-pel interpolation (850 lines, 28 unit tests)
 //! - [x] AMVP - Advanced Motion Vector Prediction (600 lines, 34 unit tests)
 //! - [x] Merge mode (550 lines, 32 unit tests)
-//! - [ ] Reference picture management
+//! - [x] Reference picture management - DPB, POC, ref lists (550 lines, 30 unit tests)
 //! - [ ] Weighted prediction
-//! - **Phase 8.4 Current: ~2,500 lines, 122 tests!**
+//! - **Phase 8.4 Current: ~3,050 lines, 152 tests!**
 //!
 //! **Phase 8.5: Encoder** (Future)
 //! - [ ] Intra mode decision
@@ -138,6 +138,7 @@ pub mod mv;
 pub mod mc;
 pub mod amvp;
 pub mod merge;
+pub mod dpb;
 
 pub use decoder::H265Decoder;
 pub use headers::{Vps, Sps, Pps, SliceHeader, SliceType};
@@ -154,6 +155,7 @@ pub use mv::{MotionVector, MvCandidate, MvPredictor, MergeCandidate, MergeCandid
 pub use mc::MotionCompensator;
 pub use amvp::{AmvpDerivation, AmvpCandidateList, SpatialNeighborHelper, TemporalScaler};
 pub use merge::{MergeDerivation, MergeCandidateListBuilder, MergeUtils, MergePruning, MergeSpatialNeighbors};
+pub use dpb::{DecodedPictureBuffer, ReferencePicture, RefPicList, RefPicListBuilder, Poc, PocUtils};
 
 #[cfg(test)]
 mod tests {
