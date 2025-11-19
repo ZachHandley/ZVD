@@ -37,14 +37,14 @@
 //! - [x] Residual reconstruction with bit-depth clamping
 //! - **Phase 8.2 Total: ~1,610 lines, 45 tests!**
 //!
-//! **Phase 8.3: Full Intra Decoder** (60% COMPLETE! 🚧)
+//! **Phase 8.3: Full Intra Decoder** (80% COMPLETE! 🚧)
 //! - [x] CABAC arithmetic decoder (470 lines, 14 unit tests)
 //! - [x] Context model management with state transitions
 //! - [x] Quantization/dequantization (290 lines, 18 unit tests)
 //! - [x] Deblocking filter - vertical and horizontal edges (360 lines, 18 unit tests)
-//! - [ ] SAO (Sample Adaptive Offset) filter (next)
+//! - [x] SAO (Sample Adaptive Offset) filter - band and edge offset (240 lines, 16 unit tests)
 //! - [ ] Coefficient scanning and decoding (next)
-//! - **Phase 8.3 Current: ~1,120 lines, 50 tests!**
+//! - **Phase 8.3 Current: ~1,360 lines, 66 tests!**
 //!
 //! **Phase 8.4: Inter Prediction** (Future)
 //! - [ ] Motion vector prediction
@@ -138,7 +138,7 @@ pub use intra::{IntraPredictor, ReferenceSamples};
 pub use transform::{Transform, TransformSize};
 pub use cabac::{CabacDecoder, ContextModel};
 pub use quant::Quantizer;
-pub use filter::{DeblockingFilter, BoundaryStrength};
+pub use filter::{DeblockingFilter, BoundaryStrength, SaoFilter, SaoParams, SaoType, SaoEdgeClass};
 
 #[cfg(test)]
 mod tests {

@@ -318,6 +318,219 @@ const TC_TABLE: [u8; 54] = [
     14, 16, 18, 20, 22, 24,
 ];
 
+/// SAO (Sample Adaptive Offset) type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaoType {
+    /// No SAO filtering
+    None = 0,
+    /// Band offset mode
+    BandOffset = 1,
+    /// Edge offset mode
+    EdgeOffset = 2,
+}
+
+/// SAO edge offset class
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaoEdgeClass {
+    /// Horizontal edge (0°)
+    Horizontal = 0,
+    /// Vertical edge (90°)
+    Vertical = 1,
+    /// Diagonal 135° edge
+    Diagonal135 = 2,
+    /// Diagonal 45° edge
+    Diagonal45 = 3,
+}
+
+/// SAO edge offset category
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EdgeCategory {
+    /// Pixel < both neighbors
+    Valley = 0,
+    /// Pixel < one neighbor
+    Concave = 1,
+    /// Pixel == neighbors (no offset)
+    None = 2,
+    /// Pixel > one neighbor
+    Convex = 3,
+    /// Pixel > both neighbors
+    Peak = 4,
+}
+
+/// SAO filter parameters
+#[derive(Debug, Clone)]
+pub struct SaoParams {
+    /// SAO type
+    pub sao_type: SaoType,
+    /// Edge offset class (for EdgeOffset type)
+    pub edge_class: SaoEdgeClass,
+    /// Offsets for each category/band
+    pub offsets: [i8; 4],
+    /// Band position (for BandOffset type)
+    pub band_position: u8,
+}
+
+impl Default for SaoParams {
+    fn default() -> Self {
+        Self {
+            sao_type: SaoType::None,
+            edge_class: SaoEdgeClass::Horizontal,
+            offsets: [0; 4],
+            band_position: 0,
+        }
+    }
+}
+
+/// SAO (Sample Adaptive Offset) filter for H.265
+pub struct SaoFilter {
+    /// Bit depth (8, 10, or 12)
+    bit_depth: u8,
+}
+
+impl SaoFilter {
+    /// Create a new SAO filter
+    pub fn new(bit_depth: u8) -> Result<Self> {
+        if bit_depth != 8 && bit_depth != 10 && bit_depth != 12 {
+            return Err(Error::InvalidData(format!(
+                "Invalid bit depth: {}",
+                bit_depth
+            )));
+        }
+
+        Ok(Self { bit_depth })
+    }
+
+    /// Apply SAO filter to a CTU
+    pub fn apply(
+        &self,
+        samples: &mut [u16],
+        width: usize,
+        height: usize,
+        stride: usize,
+        params: &SaoParams,
+    ) -> Result<()> {
+        match params.sao_type {
+            SaoType::None => Ok(()),
+            SaoType::BandOffset => self.apply_band_offset(samples, width, height, stride, params),
+            SaoType::EdgeOffset => self.apply_edge_offset(samples, width, height, stride, params),
+        }
+    }
+
+    /// Apply band offset SAO
+    ///
+    /// Divides sample values into 32 bands and applies offsets to 4 consecutive bands.
+    fn apply_band_offset(
+        &self,
+        samples: &mut [u16],
+        width: usize,
+        height: usize,
+        stride: usize,
+        params: &SaoParams,
+    ) -> Result<()> {
+        // H.265 uses 32 bands for sample values
+        let num_bands = 32;
+        let band_shift = self.bit_depth - 5; // Map to 0-31 range
+        let start_band = params.band_position as usize;
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * stride + x;
+                if idx >= samples.len() {
+                    continue;
+                }
+
+                let sample = samples[idx];
+                let band_idx = (sample >> band_shift) as usize;
+
+                // Check if sample is in one of the 4 offset bands
+                if band_idx >= start_band && band_idx < start_band + 4 {
+                    let offset_idx = band_idx - start_band;
+                    let offset = params.offsets[offset_idx] as i32;
+
+                    let new_sample = (sample as i32 + offset).clamp(0, (1 << self.bit_depth) - 1);
+                    samples[idx] = new_sample as u16;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Apply edge offset SAO
+    ///
+    /// Classifies pixels based on edge category and applies offsets.
+    fn apply_edge_offset(
+        &self,
+        samples: &mut [u16],
+        width: usize,
+        height: usize,
+        stride: usize,
+        params: &SaoParams,
+    ) -> Result<()> {
+        // Get neighbor offsets based on edge class
+        let (offset1, offset2) = match params.edge_class {
+            SaoEdgeClass::Horizontal => (-(stride as isize), stride as isize),    // top, bottom
+            SaoEdgeClass::Vertical => (-1isize, 1isize),                           // left, right
+            SaoEdgeClass::Diagonal135 => (-(stride as isize) - 1, stride as isize + 1), // top-left, bottom-right
+            SaoEdgeClass::Diagonal45 => (-(stride as isize) + 1, stride as isize - 1),  // top-right, bottom-left
+        };
+
+        for y in 1..height - 1 {
+            for x in 1..width - 1 {
+                let idx = y * stride + x;
+                if idx >= samples.len() {
+                    continue;
+                }
+
+                // Get neighbor indices
+                let idx1 = (idx as isize + offset1) as usize;
+                let idx2 = (idx as isize + offset2) as usize;
+
+                if idx1 >= samples.len() || idx2 >= samples.len() {
+                    continue;
+                }
+
+                let sample = samples[idx] as i32;
+                let neighbor1 = samples[idx1] as i32;
+                let neighbor2 = samples[idx2] as i32;
+
+                // Classify edge category
+                let category = self.classify_edge(sample, neighbor1, neighbor2);
+
+                if category != EdgeCategory::None {
+                    let offset = params.offsets[category as usize] as i32;
+                    let new_sample = (sample + offset).clamp(0, (1 << self.bit_depth) - 1);
+                    samples[idx] = new_sample as u16;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Classify edge category based on pixel and its neighbors
+    fn classify_edge(&self, sample: i32, neighbor1: i32, neighbor2: i32) -> EdgeCategory {
+        let sign1 = (sample - neighbor1).signum();
+        let sign2 = (sample - neighbor2).signum();
+
+        match (sign1, sign2) {
+            (-1, -1) => EdgeCategory::Valley,   // < both neighbors
+            (-1, 0) | (0, -1) | (-1, 1) | (1, -1) => EdgeCategory::Concave, // < one neighbor
+            (0, 0) => EdgeCategory::None,       // == neighbors
+            (1, 0) | (0, 1) | (1, -1) | (-1, 1) => EdgeCategory::Convex,    // > one neighbor
+            (1, 1) => EdgeCategory::Peak,       // > both neighbors
+            _ => EdgeCategory::None,
+        }
+    }
+
+    /// Clip value to valid sample range
+    #[inline]
+    fn clip(&self, value: i32) -> u16 {
+        let max = (1 << self.bit_depth) - 1;
+        value.clamp(0, max) as u16
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,5 +700,181 @@ mod tests {
             let filter = DeblockingFilter::new(bit_depth);
             assert!(filter.is_ok());
         }
+    }
+
+    // SAO Filter Tests
+
+    #[test]
+    fn test_sao_filter_creation() {
+        let filter = SaoFilter::new(8);
+        assert!(filter.is_ok());
+    }
+
+    #[test]
+    fn test_sao_filter_invalid_bit_depth() {
+        let filter = SaoFilter::new(9);
+        assert!(filter.is_err());
+    }
+
+    #[test]
+    fn test_sao_params_default() {
+        let params = SaoParams::default();
+        assert_eq!(params.sao_type, SaoType::None);
+        assert_eq!(params.offsets, [0; 4]);
+    }
+
+    #[test]
+    fn test_sao_none_no_change() {
+        let filter = SaoFilter::new(8).unwrap();
+        let mut samples = vec![128u16; 64]; // 8×8 block
+        let original = samples.clone();
+
+        let params = SaoParams::default(); // Type::None
+        let result = filter.apply(&mut samples, 8, 8, 8, &params);
+
+        assert!(result.is_ok());
+        assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn test_sao_band_offset() {
+        let filter = SaoFilter::new(8).unwrap();
+        let mut samples = vec![128u16; 64]; // 8×8 block
+
+        let params = SaoParams {
+            sao_type: SaoType::BandOffset,
+            edge_class: SaoEdgeClass::Horizontal,
+            offsets: [5, -3, 2, -1],
+            band_position: 4, // Band 4-7
+        };
+
+        let result = filter.apply(&mut samples, 8, 8, 8, &params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sao_edge_offset_horizontal() {
+        let filter = SaoFilter::new(8).unwrap();
+        let mut samples = vec![128u16; 64]; // 8×8 block
+
+        let params = SaoParams {
+            sao_type: SaoType::EdgeOffset,
+            edge_class: SaoEdgeClass::Horizontal,
+            offsets: [2, 1, 0, -1],
+            band_position: 0,
+        };
+
+        let result = filter.apply(&mut samples, 8, 8, 8, &params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sao_edge_offset_vertical() {
+        let filter = SaoFilter::new(8).unwrap();
+        let mut samples = vec![100u16; 100]; // 10×10 block
+
+        let params = SaoParams {
+            sao_type: SaoType::EdgeOffset,
+            edge_class: SaoEdgeClass::Vertical,
+            offsets: [3, 1, 0, -2],
+            band_position: 0,
+        };
+
+        let result = filter.apply(&mut samples, 10, 10, 10, &params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sao_edge_offset_diagonal135() {
+        let filter = SaoFilter::new(8).unwrap();
+        let mut samples = vec![128u16; 64];
+
+        let params = SaoParams {
+            sao_type: SaoType::EdgeOffset,
+            edge_class: SaoEdgeClass::Diagonal135,
+            offsets: [2, 1, 0, -1],
+            band_position: 0,
+        };
+
+        let result = filter.apply(&mut samples, 8, 8, 8, &params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sao_edge_offset_diagonal45() {
+        let filter = SaoFilter::new(8).unwrap();
+        let mut samples = vec![128u16; 64];
+
+        let params = SaoParams {
+            sao_type: SaoType::EdgeOffset,
+            edge_class: SaoEdgeClass::Diagonal45,
+            offsets: [2, 1, 0, -1],
+            band_position: 0,
+        };
+
+        let result = filter.apply(&mut samples, 8, 8, 8, &params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sao_edge_classification() {
+        let filter = SaoFilter::new(8).unwrap();
+
+        // Valley: sample < both neighbors
+        assert_eq!(filter.classify_edge(100, 110, 120), EdgeCategory::Valley);
+
+        // Peak: sample > both neighbors
+        assert_eq!(filter.classify_edge(150, 110, 120), EdgeCategory::Peak);
+
+        // None: sample == neighbors
+        assert_eq!(filter.classify_edge(100, 100, 100), EdgeCategory::None);
+    }
+
+    #[test]
+    fn test_sao_band_offset_10bit() {
+        let filter = SaoFilter::new(10).unwrap();
+        let mut samples = vec![512u16; 64]; // 10-bit samples
+
+        let params = SaoParams {
+            sao_type: SaoType::BandOffset,
+            edge_class: SaoEdgeClass::Horizontal,
+            offsets: [10, -5, 3, -2],
+            band_position: 8,
+        };
+
+        let result = filter.apply(&mut samples, 8, 8, 8, &params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sao_type_values() {
+        assert_eq!(SaoType::None as u8, 0);
+        assert_eq!(SaoType::BandOffset as u8, 1);
+        assert_eq!(SaoType::EdgeOffset as u8, 2);
+    }
+
+    #[test]
+    fn test_sao_edge_class_values() {
+        assert_eq!(SaoEdgeClass::Horizontal as u8, 0);
+        assert_eq!(SaoEdgeClass::Vertical as u8, 1);
+        assert_eq!(SaoEdgeClass::Diagonal135 as u8, 2);
+        assert_eq!(SaoEdgeClass::Diagonal45 as u8, 3);
+    }
+
+    #[test]
+    fn test_sao_clip_8bit() {
+        let filter = SaoFilter::new(8).unwrap();
+        assert_eq!(filter.clip(100), 100);
+        assert_eq!(filter.clip(255), 255);
+        assert_eq!(filter.clip(300), 255);
+        assert_eq!(filter.clip(-10), 0);
+    }
+
+    #[test]
+    fn test_sao_clip_10bit() {
+        let filter = SaoFilter::new(10).unwrap();
+        assert_eq!(filter.clip(1023), 1023);
+        assert_eq!(filter.clip(1500), 1023);
+        assert_eq!(filter.clip(-5), 0);
     }
 }
