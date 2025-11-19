@@ -14,6 +14,7 @@ pub mod scopes;
 pub mod proxy;
 pub mod interpolation;
 pub mod tenbit;
+pub mod edl;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -36,6 +37,9 @@ pub use interpolation::{
     InterpolationMethod, MotionVector, SlowMotionGenerator,
 };
 pub use tenbit::{DitherMethod, TenBitAnalyzer, TenBitConverter, TenBitFormat, TenBitFrame};
+pub use edl::{
+    EditType, EdlExporter, Timecode as EdlTimecode, Timeline, TimelineEvent, TrackType,
+};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
