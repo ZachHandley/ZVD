@@ -55,10 +55,14 @@
 //! - [x] Weighted prediction (350 lines, 13 unit tests)
 //! - **Phase 8.4 Total: ~3,400 lines, 165 tests!**
 //!
-//! **Phase 8.5: Encoder** (Future)
-//! - [ ] Intra mode decision
-//! - [ ] Motion estimation
-//! - [ ] Rate-distortion optimization
+//! **Phase 8.5: Encoder** (IN PROGRESS - 30%)
+//! - [x] Rate-Distortion Optimization framework (520 lines, 25 unit tests)
+//! - [x] Intra mode decision with MPM (280 lines, 11 unit tests)
+//! - [x] Motion estimation - Full Search & Diamond Search (500 lines, 11 unit tests)
+//! - [ ] Transform quantization decision
+//! - [ ] Mode decision (intra vs inter)
+//! - [ ] Bitstream writer
+//! - **Phase 8.5 Current: ~1,300 lines, 47 tests!**
 //!
 //! ## H.265/HEVC Specification
 //!
@@ -140,6 +144,9 @@ pub mod amvp;
 pub mod merge;
 pub mod dpb;
 pub mod weighted_pred;
+pub mod rdo;
+pub mod encoder_intra;
+pub mod me;
 
 pub use decoder::H265Decoder;
 pub use headers::{Vps, Sps, Pps, SliceHeader, SliceType};
@@ -158,6 +165,9 @@ pub use amvp::{AmvpDerivation, AmvpCandidateList, SpatialNeighborHelper, Tempora
 pub use merge::{MergeDerivation, MergeCandidateListBuilder, MergeUtils, MergePruning, MergeSpatialNeighbors};
 pub use dpb::{DecodedPictureBuffer, ReferencePicture, RefPicList, RefPicListBuilder, Poc, PocUtils};
 pub use weighted_pred::{WeightedPredictor, WeightParams, ImplicitWeightCalc};
+pub use rdo::{RdCost, RdoDecision, DistortionCalc, DistortionMetric, LambdaCalc, RateEstimator, PsnrCalc};
+pub use encoder_intra::{IntraModeSelector, IntraModeResult, MpmDerivation, FastIntraDecision};
+pub use me::{MotionEstimator, MeResult, SearchRange, SubpelRefinement};
 
 #[cfg(test)]
 mod tests {
