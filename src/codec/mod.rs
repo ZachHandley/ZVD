@@ -10,6 +10,9 @@ pub mod pcm;
 #[cfg(feature = "h264")]
 pub mod h264;
 
+#[cfg(feature = "h265")]
+pub mod h265;
+
 #[cfg(feature = "aac")]
 pub mod aac;
 
@@ -40,6 +43,9 @@ pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
 
 #[cfg(feature = "h264")]
 pub use h264::{H264Decoder, H264Encoder};
+
+#[cfg(feature = "h265")]
+pub use h265::H265Decoder;
 
 #[cfg(feature = "aac")]
 pub use aac::AacDecoder;
