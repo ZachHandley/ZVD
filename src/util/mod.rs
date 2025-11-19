@@ -9,6 +9,7 @@ pub mod pixfmt;
 pub mod samplefmt;
 pub mod thumbnail;
 pub mod quality;
+pub mod lut;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;

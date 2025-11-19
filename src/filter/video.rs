@@ -1144,6 +1144,131 @@ impl Filter for ChromaKeyFilter {
     }
 }
 
+/// 3D LUT (Look-Up Table) filter for color grading
+pub struct LutFilter {
+    lut: crate::util::lut::Lut3D,
+}
+
+impl LutFilter {
+    /// Create a new LUT filter from file
+    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+        let lut = crate::util::lut::Lut3D::from_cube_file(path)
+            .map_err(|e| Error::filter(format!("Failed to load LUT: {}", e)))?;
+
+        Ok(LutFilter { lut })
+    }
+
+    /// Create a new LUT filter from preset
+    pub fn from_preset(name: &str, size: usize) -> Result<Self> {
+        let lut = crate::util::lut::Lut3D::preset(name, size)
+            .map_err(|e| Error::filter(format!("Failed to create LUT preset: {}", e)))?;
+
+        Ok(LutFilter { lut })
+    }
+
+    /// Apply LUT to YUV420P frame
+    fn apply_yuv420p(&self, video_frame: &VideoFrame) -> Result<VideoFrame> {
+        let width = video_frame.width as usize;
+        let height = video_frame.height as usize;
+
+        let y_plane = video_frame.data[0].as_slice();
+        let u_plane = video_frame.data[1].as_slice();
+        let v_plane = video_frame.data[2].as_slice();
+
+        let y_size = width * height;
+        let uv_width = width / 2;
+        let uv_height = height / 2;
+        let uv_size = uv_width * uv_height;
+
+        let mut y_out = vec![0u8; y_size];
+        let mut u_out = vec![0u8; uv_size];
+        let mut v_out = vec![0u8; uv_size];
+
+        // Convert YUV to RGB, apply LUT, convert back to YUV
+        // Process each pixel
+        for y in 0..height {
+            for x in 0..width {
+                let y_idx = y * width + x;
+                let uv_x = x / 2;
+                let uv_y = y / 2;
+                let uv_idx = uv_y * uv_width + uv_x;
+
+                // Get YUV values
+                let y_val = y_plane[y_idx] as f32;
+                let u_val = u_plane[uv_idx] as f32;
+                let v_val = v_plane[uv_idx] as f32;
+
+                // Convert YUV to RGB (ITU-R BT.601)
+                let y_norm = (y_val - 16.0) / 219.0;
+                let u_norm = (u_val - 128.0) / 224.0;
+                let v_norm = (v_val - 128.0) / 224.0;
+
+                let r = (y_norm + 1.402 * v_norm).clamp(0.0, 1.0);
+                let g = (y_norm - 0.344136 * u_norm - 0.714136 * v_norm).clamp(0.0, 1.0);
+                let b = (y_norm + 1.772 * u_norm).clamp(0.0, 1.0);
+
+                // Apply LUT
+                let (r_out, g_out, b_out) = self.lut.apply(r, g, b);
+
+                // Convert RGB back to YUV
+                let y_out_norm = 0.299 * r_out + 0.587 * g_out + 0.114 * b_out;
+                let u_out_norm = -0.168736 * r_out - 0.331264 * g_out + 0.5 * b_out;
+                let v_out_norm = 0.5 * r_out - 0.418688 * g_out - 0.081312 * b_out;
+
+                let y_out_val = (y_out_norm * 219.0 + 16.0).clamp(0.0, 255.0) as u8;
+                let u_out_val = (u_out_norm * 224.0 + 128.0).clamp(0.0, 255.0) as u8;
+                let v_out_val = (v_out_norm * 224.0 + 128.0).clamp(0.0, 255.0) as u8;
+
+                y_out[y_idx] = y_out_val;
+
+                // For chroma planes, only write once per 2x2 block
+                if x % 2 == 0 && y % 2 == 0 {
+                    u_out[uv_idx] = u_out_val;
+                    v_out[uv_idx] = v_out_val;
+                }
+            }
+        }
+
+        // Create output frame
+        let mut output_frame = VideoFrame::new(width as u32, height as u32, video_frame.format);
+        output_frame.data = vec![
+            Buffer::from_vec(y_out),
+            Buffer::from_vec(u_out),
+            Buffer::from_vec(v_out),
+        ];
+        output_frame.linesize = vec![width, uv_width, uv_width];
+        output_frame.pts = video_frame.pts;
+        output_frame.duration = video_frame.duration;
+        output_frame.keyframe = video_frame.keyframe;
+        output_frame.pict_type = video_frame.pict_type;
+
+        Ok(output_frame)
+    }
+}
+
+impl Filter for LutFilter {
+    fn filter(&mut self, input: Frame) -> Result<Vec<Frame>> {
+        match input {
+            Frame::Video(video_frame) => {
+                if video_frame.format != PixelFormat::YUV420P {
+                    return Err(Error::filter(format!(
+                        "LUT filter only supports YUV420P, got {:?}",
+                        video_frame.format
+                    )));
+                }
+
+                let transformed = self.apply_yuv420p(&video_frame)?;
+                Ok(vec![Frame::Video(transformed)])
+            }
+            Frame::Audio(_) => Err(Error::filter("LUT filter only accepts video frames")),
+        }
+    }
+
+    fn flush(&mut self) -> Result<Vec<Frame>> {
+        Ok(Vec::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

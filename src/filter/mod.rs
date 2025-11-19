@@ -12,7 +12,7 @@ pub use chain::FilterChain;
 pub use graph::{FilterGraph, FilterNode};
 pub use video::{
     BlurFilter, BrightnessContrastFilter, ChromaKeyFilter, CropFilter, DeinterlaceFilter,
-    DeinterlaceMethod, FlipFilter, RotateFilter, ScaleFilter, SharpenFilter,
+    DeinterlaceMethod, FlipFilter, LutFilter, RotateFilter, ScaleFilter, SharpenFilter,
 };
 
 use crate::error::Result;
