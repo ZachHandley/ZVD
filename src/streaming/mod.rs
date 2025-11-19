@@ -4,6 +4,7 @@
 //!
 //! - **RTMP** - Real-Time Messaging Protocol (live streaming)
 //! - **HLS** - HTTP Live Streaming (Apple)
+//! - **LL-HLS** - Low-Latency HLS (sub-second latency)
 //! - **DASH** - Dynamic Adaptive Streaming over HTTP (MPEG-DASH)
 //! - **RTP/RTSP** - Real-time Transport Protocol / Real Time Streaming Protocol
 //! - **SRT** - Secure Reliable Transport
@@ -11,6 +12,7 @@
 
 pub mod rtmp;
 pub mod hls;
+pub mod ll_hls;
 pub mod dash;
 pub mod rtp;
 pub mod srt;
