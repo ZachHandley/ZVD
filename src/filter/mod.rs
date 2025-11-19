@@ -2,11 +2,13 @@
 
 pub mod audio;
 pub mod chain;
+pub mod dsp;
 pub mod graph;
-pub mod video;
 pub mod loudness;
+pub mod video;
 
 pub use audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
+pub use dsp::{Compressor, DeEsser, EqBandType, Expander, Limiter, ParametricEq};
 pub use loudness::{LoudnessMeter, LoudnessNormalizer, targets};
 pub use chain::FilterChain;
 pub use graph::{FilterGraph, FilterNode};
