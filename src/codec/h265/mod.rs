@@ -55,14 +55,14 @@
 //! - [x] Weighted prediction (350 lines, 13 unit tests)
 //! - **Phase 8.4 Total: ~3,400 lines, 165 tests!**
 //!
-//! **Phase 8.5: Encoder** (IN PROGRESS - 60%)
+//! **Phase 8.5: Encoder** (100% COMPLETE! 🎉)
 //! - [x] Rate-Distortion Optimization framework (520 lines, 25 unit tests)
 //! - [x] Intra mode decision with MPM (280 lines, 11 unit tests)
 //! - [x] Motion estimation - Full Search & Diamond Search (500 lines, 11 unit tests)
 //! - [x] Mode decision - Intra/Inter/Skip selection (380 lines, 13 unit tests)
 //! - [x] Transform decision & RDOQ (350 lines, 11 unit tests)
-//! - [ ] Bitstream writer
-//! - **Phase 8.5 Current: ~2,030 lines, 71 tests!**
+//! - [x] Bitstream writer - CABAC encoder & NAL units (600 lines, 20 unit tests)
+//! - **Phase 8.5 Total: ~2,630 lines, 91 tests!**
 //!
 //! ## H.265/HEVC Specification
 //!
@@ -149,6 +149,7 @@ pub mod encoder_intra;
 pub mod me;
 pub mod mode_decision;
 pub mod encoder_transform;
+pub mod bitstream_writer;
 
 pub use decoder::H265Decoder;
 pub use headers::{Vps, Sps, Pps, SliceHeader, SliceType};
@@ -172,6 +173,8 @@ pub use encoder_intra::{IntraModeSelector, IntraModeResult, MpmDerivation, FastI
 pub use me::{MotionEstimator, MeResult, SearchRange, SubpelRefinement};
 pub use mode_decision::{ModeDecision, ModeDecisionResult, CodingMode, SplitDecision, EarlyTermination};
 pub use encoder_transform::{TransformDecision, TransformResult, RdoqOptimizer};
+pub use bitstream_writer::{BitstreamWriter, CabacEncoder, NalWriter, HeaderWriter,
+                           CoefficientCoder, MvCoder, IntraModeCoder};
 
 #[cfg(test)]
 mod tests {
