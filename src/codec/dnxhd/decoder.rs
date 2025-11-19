@@ -1,10 +1,16 @@
-//! DNxHD decoder implementation
+//! DNxHD decoder implementation - Pure Rust!
 
 use super::{DnxhdProfile, DnxhdFrameHeader};
+use super::bitstream::DnxhdBitstreamReader;
+use super::data::CidData;
+use super::dct::DnxhdDct;
+use super::macroblock::{Macroblock, MacroblockProcessor};
+use super::quant::DnxhdQuantizer;
+use super::vlc::DnxhdVlcDecoder;
 use crate::codec::{Decoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, PixelFormat, Timestamp};
+use crate::util::{PixelFormat, Timestamp};
 
 /// DNxHD video decoder
 pub struct DnxhdDecoder {
@@ -65,36 +71,139 @@ impl DnxhdDecoder {
         })
     }
 
-    /// Decode frame data (placeholder)
-    fn decode_frame_data(&self, _data: &[u8], header: &DnxhdFrameHeader) -> Result<VideoFrame> {
-        // Placeholder - actual DNxHD decoding involves:
-        // - Variable-length decoding
-        // - Inverse quantization
-        // - Inverse DCT
-        // - Block reconstruction
-        //
-        // Would typically use a library like libavcodec
+    /// Decode frame data using our pure Rust implementation!
+    fn decode_frame_data(&self, data: &[u8], header: &DnxhdFrameHeader) -> Result<VideoFrame> {
+        let width = self.width as usize;
+        let height = self.height as usize;
 
-        // For now, create an empty frame with correct dimensions
-        let pixel_format = if header.is_422 {
-            if header.bit_depth == 10 {
-                PixelFormat::YUV422P10LE
-            } else {
-                PixelFormat::YUV422P
-            }
-        } else {
+        // Determine profile from CID
+        let profile = self.profile.unwrap_or(DnxhdProfile::DnxhrHq);
+        let cid_data = CidData::for_profile(profile);
+
+        // Determine pixel format
+        let is_444 = !header.is_422;
+        let pixel_format = if is_444 {
             if header.bit_depth == 10 {
                 PixelFormat::YUV444P10LE
             } else {
                 PixelFormat::YUV444P
             }
+        } else {
+            if header.bit_depth == 10 {
+                PixelFormat::YUV422P10LE
+            } else {
+                PixelFormat::YUV422P
+            }
         };
 
-        let mut frame = VideoFrame::new(
-            self.width,
-            self.height,
-            pixel_format,
-        );
+        // Create output frame
+        let mut frame = VideoFrame::new(self.width, self.height, pixel_format);
+
+        // Create macroblock processor
+        let mb_processor = MacroblockProcessor::new(width, height, is_444);
+
+        // Create bitstream reader
+        let mut reader = DnxhdBitstreamReader::new(data);
+
+        // Calculate macroblock dimensions
+        let mb_width = (width + 15) / 16;
+        let mb_height = (height + 15) / 16;
+
+        // DC predictors (per component)
+        let mut last_dc_y = 1 << (header.bit_depth + 2);
+        let mut last_dc_cb = 1 << (header.bit_depth + 2);
+        let mut last_dc_cr = 1 << (header.bit_depth + 2);
+
+        // Decode macroblocks
+        for mb_y in 0..mb_height {
+            for mb_x in 0..mb_width {
+                // Read quantization scale (11 bits)
+                let qscale = reader.read_bits(11)? as u16;
+
+                // Create quantizer and VLC decoder
+                let quantizer = DnxhdQuantizer::new(cid_data, qscale);
+                let vlc_decoder = DnxhdVlcDecoder::new(cid_data);
+
+                // Create macroblock
+                let mut mb = if is_444 {
+                    Macroblock::new_444()
+                } else {
+                    Macroblock::new_422()
+                };
+                mb.qscale = qscale;
+
+                // Decode Y blocks
+                for block_idx in 0..mb.y_blocks.len() {
+                    let mut quant_coeffs = [0i16; 64];
+
+                    // Decode DC with prediction
+                    let dc_diff = vlc_decoder.decode_dc(&mut reader)?;
+                    last_dc_y += dc_diff as i32;
+                    quant_coeffs[0] = last_dc_y as i16;
+
+                    // Decode AC coefficients
+                    vlc_decoder.decode_ac(&mut reader, &mut quant_coeffs)?;
+
+                    // Dequantize
+                    let mut dct_coeffs = [0i16; 64];
+                    quantizer.dequantize_luma(&quant_coeffs, &mut dct_coeffs)?;
+
+                    // IDCT
+                    DnxhdDct::inverse_dct(&dct_coeffs, &mut mb.y_blocks[block_idx])?;
+                }
+
+                // Decode Cb blocks
+                for block_idx in 0..mb.cb_blocks.len() {
+                    let mut quant_coeffs = [0i16; 64];
+
+                    // Decode DC with prediction
+                    let dc_diff = vlc_decoder.decode_dc(&mut reader)?;
+                    last_dc_cb += dc_diff as i32;
+                    quant_coeffs[0] = last_dc_cb as i16;
+
+                    // Decode AC coefficients
+                    vlc_decoder.decode_ac(&mut reader, &mut quant_coeffs)?;
+
+                    // Dequantize
+                    let mut dct_coeffs = [0i16; 64];
+                    quantizer.dequantize_chroma(&quant_coeffs, &mut dct_coeffs)?;
+
+                    // IDCT
+                    DnxhdDct::inverse_dct(&dct_coeffs, &mut mb.cb_blocks[block_idx])?;
+                }
+
+                // Decode Cr blocks
+                for block_idx in 0..mb.cr_blocks.len() {
+                    let mut quant_coeffs = [0i16; 64];
+
+                    // Decode DC with prediction
+                    let dc_diff = vlc_decoder.decode_dc(&mut reader)?;
+                    last_dc_cr += dc_diff as i32;
+                    quant_coeffs[0] = last_dc_cr as i16;
+
+                    // Decode AC coefficients
+                    vlc_decoder.decode_ac(&mut reader, &mut quant_coeffs)?;
+
+                    // Dequantize
+                    let mut dct_coeffs = [0i16; 64];
+                    quantizer.dequantize_chroma(&quant_coeffs, &mut dct_coeffs)?;
+
+                    // IDCT
+                    DnxhdDct::inverse_dct(&dct_coeffs, &mut mb.cr_blocks[block_idx])?;
+                }
+
+                // Insert macroblock into frame
+                mb_processor.insert_macroblock(
+                    &mb,
+                    &mut frame.y_plane,
+                    &mut frame.u_plane,
+                    &mut frame.v_plane,
+                    mb_x,
+                    mb_y,
+                )?;
+            }
+        }
+
         frame.pts = Timestamp::new(0);
         Ok(frame)
     }

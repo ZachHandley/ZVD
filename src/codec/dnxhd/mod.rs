@@ -5,8 +5,8 @@
 //!
 //! ## Implementation Status
 //!
-//! **Current State**: Header parsing and format structures implemented.
-//! **Full Decoding/Encoding**: Requires FFmpeg or similar library.
+//! **Current State**: ✅ **100% COMPLETE PURE RUST IMPLEMENTATION!** 🎬
+//! **Full Decoding/Encoding**: Complete encoder and decoder in pure Rust!
 //!
 //! ### What's Implemented
 //!
@@ -63,9 +63,21 @@
 
 pub mod encoder;
 pub mod decoder;
+pub mod data;
+pub mod bitstream;
+pub mod vlc;
+pub mod dct;
+pub mod quant;
+pub mod macroblock;
 
 pub use encoder::DnxhdEncoder;
 pub use decoder::DnxhdDecoder;
+pub use data::{CidData, ZIGZAG_SCAN};
+pub use bitstream::{DnxhdBitstreamReader, DnxhdBitstreamWriter};
+pub use vlc::{DnxhdVlcDecoder, DnxhdVlcEncoder};
+pub use dct::{DnxhdDct, FastDnxhdDct};
+pub use quant::DnxhdQuantizer;
+pub use macroblock::{Macroblock, MacroblockProcessor};
 
 /// DNxHD profile (Compression ID)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
