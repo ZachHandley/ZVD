@@ -12,11 +12,23 @@
 //! **Audio:**
 //! - AAC (patent-encumbered - see CODEC_LICENSES.md)
 //!
+//! **Subtitles:**
+//! - TTXT/tx3g (3GPP Timed Text format)
+//! - Compatible with SRT, WebVTT, and ASS/SSA subtitles
+//!
+//! ## Multi-Track Support
+//!
+//! - ✅ Multiple video tracks
+//! - ✅ Multiple audio tracks
+//! - ✅ Multiple subtitle tracks
+//! - Each track maintains independent timescale and configuration
+//!
 //! ## Notes
 //!
 //! - ProRes and DNxHD are typically used in MOV containers
 //! - For Opus audio, use WebM/MKV containers instead
 //! - Patent-encumbered codecs require licensing for commercial use
+//! - Subtitle tracks use TTXT format which is compatible with most MP4 players
 
 #[cfg(feature = "mp4-support")]
 use crate::error::{Error, Result};
@@ -27,7 +39,7 @@ use crate::util::MediaType;
 #[cfg(feature = "mp4-support")]
 use mp4::{
     AacConfig, AudioObjectType, AvcConfig, ChannelConfig, HevcConfig, MediaConfig, Mp4Config,
-    Mp4Sample, Mp4Writer, SampleFreqIndex, TrackConfig, TrackType, Vp9Config,
+    Mp4Sample, Mp4Writer, SampleFreqIndex, TrackConfig, TrackType, TtxtConfig, Vp9Config,
 };
 #[cfg(feature = "mp4-support")]
 use std::collections::HashMap;
@@ -172,6 +184,18 @@ impl Mp4Muxer {
                     timescale,
                     language: "und".to_string(),
                     media_conf: MediaConfig::AacConfig(aac_config),
+                })
+            }
+            MediaType::Subtitle => {
+                // Create subtitle track config (tx3g/TTXT format)
+                // TTXT is the 3GPP Timed Text format used in MP4 containers
+                let ttxt_config = TtxtConfig {};
+
+                Ok(TrackConfig {
+                    track_type: TrackType::Subtitle,
+                    timescale,
+                    language: "und".to_string(),
+                    media_conf: MediaConfig::TtxtConfig(ttxt_config),
                 })
             }
             _ => Err(Error::format(format!(

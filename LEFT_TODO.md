@@ -66,14 +66,17 @@
 **Status**: 🔄 **IN PROGRESS** (MP4 enhanced, WebM stub created)
 **Estimated Effort**: 2,500-3,500 lines remaining
 
-- [x] **MP4/MOV Muxing - Core Codecs** ✅ **ENHANCED!**
+- [x] **MP4/MOV Muxing - Core Codecs** ✅ **COMPLETE!**
   - ✅ H.264/AVC support
   - ✅ H.265/HEVC support (works with pure Rust codec!)
   - ✅ VP9 support
   - ✅ AAC audio support
+  - ✅ TTXT/tx3g subtitle tracks (NEW!)
+  - ✅ Multiple video tracks
+  - ✅ Multiple audio tracks
+  - ✅ Multiple subtitle tracks
   - ✅ Registered in create_muxer()
   - [ ] Edit list (elst) support
-  - [ ] Multiple audio/subtitle tracks
   - [ ] Chapter markers
   - [ ] iTunes metadata
 
