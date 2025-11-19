@@ -46,14 +46,14 @@
 //! - [x] Coefficient scanning - diagonal/horizontal/vertical patterns (430 lines, 20 unit tests)
 //! - **Phase 8.3 Total: ~1,790 lines, 86 tests!**
 //!
-//! **Phase 8.4: Inter Prediction** (IN PROGRESS - 50%)
+//! **Phase 8.4: Inter Prediction** (IN PROGRESS - 70%)
 //! - [x] Motion vector structures (500 lines, 28 unit tests)
 //! - [x] Motion compensation with fractional-pel interpolation (850 lines, 28 unit tests)
 //! - [x] AMVP - Advanced Motion Vector Prediction (600 lines, 34 unit tests)
-//! - [ ] Merge mode
+//! - [x] Merge mode (550 lines, 32 unit tests)
 //! - [ ] Reference picture management
 //! - [ ] Weighted prediction
-//! - **Phase 8.4 Current: ~1,950 lines, 90 tests!**
+//! - **Phase 8.4 Current: ~2,500 lines, 122 tests!**
 //!
 //! **Phase 8.5: Encoder** (Future)
 //! - [ ] Intra mode decision
@@ -137,6 +137,7 @@ pub mod scan;
 pub mod mv;
 pub mod mc;
 pub mod amvp;
+pub mod merge;
 
 pub use decoder::H265Decoder;
 pub use headers::{Vps, Sps, Pps, SliceHeader, SliceType};
@@ -152,6 +153,7 @@ pub use mv::{MotionVector, MvCandidate, MvPredictor, MergeCandidate, MergeCandid
              PredictionList, PredictionFlag, SpatialNeighbor, MotionVectorField};
 pub use mc::MotionCompensator;
 pub use amvp::{AmvpDerivation, AmvpCandidateList, SpatialNeighborHelper, TemporalScaler};
+pub use merge::{MergeDerivation, MergeCandidateListBuilder, MergeUtils, MergePruning, MergeSpatialNeighbors};
 
 #[cfg(test)]
 mod tests {
