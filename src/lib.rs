@@ -16,12 +16,14 @@
 //! - `hwaccel`: Hardware acceleration support
 //! - `streaming`: Streaming protocol support (RTMP, HLS, DASH, etc.)
 //! - `subtitle`: Subtitle format support (SRT, WebVTT, ASS/SSA)
+//! - `probe`: Media file probing and metadata extraction (ffprobe equivalent)
 
 pub mod codec;
 pub mod error;
 pub mod filter;
 pub mod format;
 pub mod hwaccel;
+pub mod probe;
 pub mod streaming;
 pub mod subtitle;
 pub mod swresample;

@@ -141,6 +141,7 @@ all-codecs = ["h264", "h265", "aac", "mp4-support", "all-free-codecs"]
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.5"
+tempfile = "3.8"
 
 [profile.release]
 opt-level = 3
