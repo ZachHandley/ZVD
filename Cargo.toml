@@ -90,8 +90,7 @@ rav1e = { version = "0.8", default-features = false }
 matroska-demuxer = "0.6"
 
 # WebM/Matroska muxer (MIT)
-webm-iterable = { version = "0.6", optional = true }
-ebml-iterable = { version = "0.4", optional = true }
+mkv-element = { version = "0.3", optional = true }
 
 # MP4 container support (MIT)
 mp4 = { version = "0.14", optional = true }
@@ -137,7 +136,7 @@ h264 = ["openh264", "mp4"]
 h265 = []  # Pure Rust H.265 implementation (no external dependencies)
 aac = ["symphonia-codec-aac", "mp4"]
 mp4-support = ["mp4"]
-webm-support = ["webm-iterable", "ebml-iterable"]
+webm-support = ["mkv-element"]
 
 # Convenience features
 all-free-codecs = ["opus-codec", "vp8-codec", "vp9-codec"]

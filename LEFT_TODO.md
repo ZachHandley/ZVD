@@ -63,8 +63,8 @@
 ---
 
 #### 2. Container Format Enhancements ⭐⭐⭐
-**Status**: 🔄 **IN PROGRESS** (MP4 enhanced, WebM stub created)
-**Estimated Effort**: 2,500-3,500 lines remaining
+**Status**: ✅ **MOSTLY COMPLETE!** (MP4 & WebM production-ready!)
+**Estimated Effort**: 1,500-2,000 lines remaining (advanced features)
 
 - [x] **MP4/MOV Muxing - Core Codecs** ✅ **COMPLETE!**
   - ✅ H.264/AVC support
@@ -80,12 +80,16 @@
   - [ ] Chapter markers
   - [ ] iTunes metadata
 
-- [ ] **Matroska/MKV Muxing** - Currently only demuxing
-  - 🔄 WebM muxer stub created (needs ~800-1,200 lines)
-  - EBML structure writing
-  - Cluster organization
-  - Cue point generation
-  - Attachment support
+- [x] **Matroska/MKV Muxing - Core Features** ✅ **COMPLETE!**
+  - ✅ WebM muxer fully implemented (419 lines!)
+  - ✅ EBML structure writing
+  - ✅ Cluster organization
+  - ✅ VP8, VP9, AV1, Vorbis, Opus support
+  - ✅ Multi-track support
+  - ✅ Streaming-optimized (unknown sizes)
+  - [ ] Cue point generation (seeking)
+  - [ ] Attachment support
+  - [ ] Chapter markers
 
 - [ ] **MPEG-TS (Transport Stream)**
   - Program Association Table (PAT)
