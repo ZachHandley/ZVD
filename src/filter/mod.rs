@@ -4,8 +4,10 @@ pub mod audio;
 pub mod chain;
 pub mod graph;
 pub mod video;
+pub mod loudness;
 
 pub use audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
+pub use loudness::{LoudnessMeter, LoudnessNormalizer, targets};
 pub use chain::FilterChain;
 pub use graph::{FilterGraph, FilterNode};
 pub use video::{
