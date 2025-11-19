@@ -6,6 +6,7 @@
 pub mod avi;
 pub mod demuxer;
 pub mod flv;
+pub mod metadata;
 pub mod mpegts;
 pub mod muxer;
 pub mod packet;
@@ -19,6 +20,9 @@ pub mod y4m;
 pub mod mp4;
 
 pub use demuxer::{Demuxer, DemuxerContext};
+pub use metadata::{
+    Chapter, ContainerMetadata, ContainerTags, CuePoint, CuePointType, MetadataBuilder,
+};
 pub use muxer::{Muxer, MuxerContext};
 pub use packet::Packet;
 pub use stream::{AudioInfo, Stream, StreamInfo, VideoInfo};
