@@ -2,12 +2,14 @@
 
 pub mod rational;
 pub mod timestamp;
+pub mod timecode;
 pub mod buffer;
 pub mod pixfmt;
 pub mod samplefmt;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
+pub use timecode::{FrameRate, Timecode};
 pub use buffer::{Buffer, BufferRef};
 pub use pixfmt::PixelFormat;
 pub use samplefmt::SampleFormat;
