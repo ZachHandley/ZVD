@@ -21,6 +21,7 @@ pub mod sync;
 pub mod telecine;
 pub mod detection;
 pub mod watermark;
+pub mod alpha;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -63,6 +64,7 @@ pub use detection::{
     SilenceDetector, SilentRegion,
 };
 pub use watermark::{Watermark, WatermarkPosition, WatermarkStyle, WatermarkType};
+pub use alpha::{AlphaCompositor, AlphaMask, AlphaType, CompositeOp, RgbaFrame};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
