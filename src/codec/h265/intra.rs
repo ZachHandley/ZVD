@@ -201,25 +201,100 @@ impl IntraPredictor {
 
     /// Angular prediction (Modes 2-34)
     ///
-    /// For Phase 8.2, we implement simplified angular prediction.
-    /// Full implementation would include:
-    /// - 33 different angles
-    /// - Fractional sample interpolation
-    /// - Reference sample filtering
+    /// H.265 has 33 angular modes that predict pixels from reference samples
+    /// at various angles. Mode 10 is horizontal, mode 26 is vertical.
     fn predict_angular(&self, refs: &ReferenceSamples, dst: &mut [u16], stride: usize, angle: u8) -> Result<()> {
         let n = refs.size;
 
-        // For Phase 8.2, implement only vertical (mode 26) and horizontal (mode 10)
-        // as simplified angular modes
-        match angle {
-            10 => self.predict_horizontal(refs, dst, stride),
-            26 => self.predict_vertical(refs, dst, stride),
-            _ => {
-                // For other angular modes, fall back to DC for now
-                // Full implementation in Phase 8.3
-                self.predict_dc(refs, dst, stride)
+        // H.265 angle table: angle delta from vertical/horizontal
+        // Modes 2-17: angles relative to horizontal (modes < 10)
+        // Mode 10: pure horizontal
+        // Modes 11-25: angles between horizontal and vertical
+        // Mode 26: pure vertical
+        // Modes 27-34: angles relative to vertical (modes > 26)
+        const ANGLE_TABLE: [i32; 33] = [
+            32, 26, 21, 17, 13,  9,  5,  2,  0, // Modes 2-10
+            -2, -5, -9,-13,-17,-21,-26,-32,    // Modes 11-18 (approach vertical)
+            -26,-21,-17,-13, -9, -5, -2,  0,   // Modes 19-26 (vertical = 0)
+            2,  5,  9, 13, 17, 21, 26, 32,     // Modes 27-34 (beyond vertical)
+        ];
+
+        let mode_idx = (angle - 2) as usize;
+        if mode_idx >= ANGLE_TABLE.len() {
+            return Err(Error::codec(format!("Invalid angular mode: {}", angle)));
+        }
+
+        let angle_delta = ANGLE_TABLE[mode_idx];
+        let is_vertical_domain = angle >= 18; // Modes 18-34 use top references primarily
+
+        if is_vertical_domain {
+            // Predict from top references (vertical-ish modes)
+            self.predict_angular_vertical(refs, dst, stride, angle_delta)
+        } else {
+            // Predict from left references (horizontal-ish modes)
+            self.predict_angular_horizontal(refs, dst, stride, angle_delta)
+        }
+    }
+
+    /// Angular prediction in vertical domain (modes 18-34)
+    fn predict_angular_vertical(&self, refs: &ReferenceSamples, dst: &mut [u16], stride: usize, angle_delta: i32) -> Result<()> {
+        let n = refs.size;
+
+        for y in 0..n {
+            for x in 0..n {
+                // Project from top references at the given angle
+                // angle_delta = 0 means pure vertical (mode 26)
+                // Positive angles lean right, negative lean left
+
+                let idx_offset = ((y as i32 + 1) * angle_delta) >> 5; // Scale factor of 32
+                let ref_x = (x as i32 + idx_offset) as isize;
+
+                let pixel = if ref_x >= 0 && ref_x < (2 * n) as isize {
+                    refs.get_top(ref_x as usize)
+                } else if ref_x < 0 {
+                    // Use left references for negative offsets
+                    let left_y = (-ref_x - 1) as usize;
+                    refs.get_left(n - 1 - left_y.min(n - 1))
+                } else {
+                    // Clamp to last available top reference
+                    refs.get_top((2 * n - 1).min(ref_x as usize))
+                };
+
+                dst[y * stride + x] = pixel;
             }
         }
+
+        Ok(())
+    }
+
+    /// Angular prediction in horizontal domain (modes 2-17)
+    fn predict_angular_horizontal(&self, refs: &ReferenceSamples, dst: &mut [u16], stride: usize, angle_delta: i32) -> Result<()> {
+        let n = refs.size;
+
+        for y in 0..n {
+            for x in 0..n {
+                // Project from left references at the given angle
+                // angle_delta determines the slope
+
+                let idx_offset = ((x as i32 + 1) * angle_delta) >> 5;
+                let ref_y = (y as i32 + idx_offset) as isize;
+
+                let pixel = if ref_y >= 0 && ref_y < n as isize {
+                    refs.get_left(n - 1 - ref_y as usize)
+                } else if ref_y < 0 {
+                    // Use top references for negative offsets
+                    let top_x = (-ref_y - 1) as usize;
+                    refs.get_top(top_x.min(n - 1))
+                } else {
+                    // Clamp to bottom-most left reference
+                    refs.get_left(0)
+                };
+
+                dst[y * stride + x] = pixel;
+            }
+        }
+
+        Ok(())
     }
 
     /// Horizontal prediction (Angular mode 10)
@@ -402,5 +477,90 @@ mod tests {
         dst.fill(0);
         predictor.predict(IntraMode::Angular(26), &refs, &mut dst, 4).unwrap();
         assert_eq!(dst[0], 50);
+    }
+
+    #[test]
+    fn test_angular_mode_2_to_34() {
+        let predictor = IntraPredictor::new(8);
+        let mut refs = ReferenceSamples::new(4, 8);
+        refs.fill_gradient();
+
+        // Test all 33 angular modes
+        for mode in 2..=34 {
+            let mut dst = vec![0u16; 16];
+            let result = predictor.predict(IntraMode::Angular(mode), &refs, &mut dst, 4);
+            assert!(result.is_ok(), "Angular mode {} failed", mode);
+
+            // Verify some pixels were set
+            assert!(dst.iter().any(|&x| x > 0), "Angular mode {} produced all zeros", mode);
+        }
+    }
+
+    #[test]
+    fn test_angular_diagonal_modes() {
+        let predictor = IntraPredictor::new(8);
+        let mut refs = ReferenceSamples::new(4, 8);
+
+        // Set distinct top and left references
+        for i in 0..8 {
+            refs.top[i] = 100 + i as u16 * 10;
+            refs.left[i] = 200 + i as u16 * 10;
+        }
+
+        let mut dst = vec![0u16; 16];
+
+        // Test mode 2 (most horizontal)
+        predictor.predict(IntraMode::Angular(2), &refs, &mut dst, 4).unwrap();
+        assert!(dst[0] > 0);
+
+        // Test mode 18 (45-degree diagonal)
+        dst.fill(0);
+        predictor.predict(IntraMode::Angular(18), &refs, &mut dst, 4).unwrap();
+        assert!(dst[0] > 0);
+
+        // Test mode 34 (most vertical beyond vertical)
+        dst.fill(0);
+        predictor.predict(IntraMode::Angular(34), &refs, &mut dst, 4).unwrap();
+        assert!(dst[0] > 0);
+    }
+
+    #[test]
+    fn test_angular_mode_invalid() {
+        let predictor = IntraPredictor::new(8);
+        let mut refs = ReferenceSamples::new(4, 8);
+        refs.fill_constant(50);
+
+        let mut dst = vec![0u16; 16];
+
+        // Mode 35 is invalid (valid range is 2-34)
+        let result = predictor.predict(IntraMode::Angular(35), &refs, &mut dst, 4);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_angular_mode_reference_access() {
+        let predictor = IntraPredictor::new(8);
+        let mut refs = ReferenceSamples::new(8, 8);
+
+        // Fill with distinct patterns
+        for i in 0..16 {
+            refs.top[i] = i as u16 * 10;
+        }
+        for i in 0..17 {
+            refs.left[i] = 100 + i as u16 * 5;
+        }
+
+        let mut dst = vec![0u16; 64];
+
+        // Mode 10 (horizontal) should use left references
+        predictor.predict(IntraMode::Angular(10), &refs, &mut dst, 8).unwrap();
+        // First row should come from left[7] (top-adjacent)
+        assert!(dst[0] >= 100 && dst[0] <= 200, "Horizontal mode should use left refs");
+
+        // Mode 26 (vertical) should use top references
+        dst.fill(0);
+        predictor.predict(IntraMode::Angular(26), &refs, &mut dst, 8).unwrap();
+        // First pixel should come from top[0]
+        assert!(dst[0] < 100, "Vertical mode should use top refs");
     }
 }
