@@ -12,6 +12,7 @@ pub mod quality;
 pub mod lut;
 pub mod scopes;
 pub mod proxy;
+pub mod interpolation;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -28,6 +29,10 @@ pub use scopes::{Histogram, VectorscopeYUV, WaveformMode, WaveformScope};
 pub use proxy::{
     ProxyCodec, ProxyConfig, ProxyGenerator, ProxyMetadata, ProxyPreset, ProxyQuality,
     ProxyResolution,
+};
+pub use interpolation::{
+    FrameData as InterpolationFrameData, FrameFormat, FrameInterpolator, FrameRateConverter,
+    InterpolationMethod, MotionVector, SlowMotionGenerator,
 };
 
 /// Common media types
