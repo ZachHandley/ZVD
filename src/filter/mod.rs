@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod chain;
+pub mod denoise;
 pub mod dsp;
 pub mod graph;
 pub mod loudness;
@@ -10,6 +11,7 @@ pub mod resampling;
 pub mod video;
 
 pub use audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
+pub use denoise::{AdaptiveSharpen, BilateralFilter, SpatialDenoiser, TemporalDenoiser, UnsharpMask};
 pub use dsp::{Compressor, DeEsser, EqBandType, Expander, Limiter, ParametricEq};
 pub use loudness::{LoudnessMeter, LoudnessNormalizer, targets};
 pub use metering::{PeakMeter, PhaseCorrelationMeter, RmsLevelMeter, SpectrumAnalyzer, VuMeter};
