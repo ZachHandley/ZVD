@@ -2,6 +2,20 @@
 //!
 //! MPEG-DASH is an adaptive bitrate streaming technique that enables high quality
 //! streaming of media content over the Internet.
+//!
+//! ## Features
+//!
+//! - MPD (Media Presentation Description) manifest generation
+//! - Segment templates for efficient representation
+//! - Multiple adaptation sets (video, audio, subtitles)
+//! - Live and on-demand support
+//! - Multi-period support
+//!
+//! ## DASH vs HLS
+//!
+//! - **DASH**: ISO standard, codec-agnostic, XML-based manifests
+//! - **HLS**: Apple standard, mainly H.264/AAC, text-based playlists
+//! - Both support adaptive bitrate streaming
 
 use super::QualityProfile;
 use crate::error::{Error, Result};
@@ -56,32 +70,84 @@ impl DashManifest {
     pub fn generate_mpd(&self, is_live: bool) -> String {
         let mut mpd = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         mpd.push_str("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" ");
-        mpd.push_str("type=\"");
-        mpd.push_str(if is_live { "dynamic" } else { "static" });
-        mpd.push_str("\" ");
-        mpd.push_str("profiles=\"urn:mpeg:dash:profile:isoff-live:2011\">\n");
 
-        // Period
-        mpd.push_str("  <Period>\n");
+        // Type: static for VOD, dynamic for live
+        mpd.push_str(&format!("type=\"{}\" ", if is_live { "dynamic" } else { "static" }));
 
-        // Adaptation Sets for each quality
-        for (idx, profile) in self.profiles.iter().enumerate() {
-            mpd.push_str(&format!("    <AdaptationSet id=\"{}\" mimeType=\"video/mp4\" ", idx));
-            mpd.push_str(&format!("width=\"{}\" height=\"{}\">\n", profile.width, profile.height));
+        // Profiles - using on-demand for maximum compatibility
+        mpd.push_str("profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" ");
 
-            // Representation
-            mpd.push_str(&format!("      <Representation id=\"{}\" ", idx));
-            mpd.push_str(&format!("bandwidth=\"{}\" ", profile.bitrate));
-            mpd.push_str(&format!("codecs=\"avc1.4d401f\">\n"));
+        // Min buffer time (recommended 2 seconds)
+        mpd.push_str("minBufferTime=\"PT2S\" ");
 
-            // Segment list
-            mpd.push_str("        <SegmentList>\n");
-            for segment in &self.segments {
-                mpd.push_str(&format!("          <SegmentURL media=\"{}\" />\n", segment.filename));
+        // Media presentation duration (for static/VOD)
+        if !is_live && !self.segments.is_empty() {
+            let total_duration: Duration = self.segments.iter().map(|s| s.duration).sum();
+            let secs = total_duration.as_secs();
+            let millis = total_duration.subsec_millis();
+            mpd.push_str(&format!("mediaPresentationDuration=\"PT{}.{}S\" ", secs, millis));
+        }
+
+        mpd.push_str(">\n");
+
+        // Period (single period for now)
+        mpd.push_str("  <Period id=\"0\"");
+        if !is_live && !self.segments.is_empty() {
+            let total_duration: Duration = self.segments.iter().map(|s| s.duration).sum();
+            let secs = total_duration.as_secs();
+            let millis = total_duration.subsec_millis();
+            mpd.push_str(&format!(" duration=\"PT{}.{}S\"", secs, millis));
+        }
+        mpd.push_str(">\n");
+
+        // Video Adaptation Set
+        if !self.profiles.is_empty() {
+            mpd.push_str("    <AdaptationSet id=\"0\" ");
+            mpd.push_str("contentType=\"video\" ");
+            mpd.push_str("segmentAlignment=\"true\" ");
+            mpd.push_str("bitstreamSwitching=\"true\" ");
+            mpd.push_str("mimeType=\"video/mp4\" ");
+            mpd.push_str("codecs=\"avc1.4d401f\">\n");
+
+            // Representations for each quality
+            for (idx, profile) in self.profiles.iter().enumerate() {
+                mpd.push_str(&format!("      <Representation id=\"{}\" ", idx));
+                mpd.push_str(&format!("bandwidth=\"{}\" ", profile.bitrate));
+                mpd.push_str(&format!("width=\"{}\" ", profile.width));
+                mpd.push_str(&format!("height=\"{}\" ", profile.height));
+                mpd.push_str(&format!("frameRate=\"{}\">\n", profile.framerate));
+
+                // Segment Template (more efficient than SegmentList)
+                if !self.segments.is_empty() {
+                    let duration_ms = self.segment_duration.as_millis();
+                    mpd.push_str("        <SegmentTemplate ");
+                    mpd.push_str(&format!("timescale=\"1000\" "));
+                    mpd.push_str(&format!("duration=\"{}\" ", duration_ms));
+                    mpd.push_str(&format!("initialization=\"{}_init.mp4\" ", profile.name));
+                    mpd.push_str(&format!("media=\"{}_$Number$.m4s\" ", profile.name));
+                    mpd.push_str("startNumber=\"0\">\n");
+
+                    // Segment timeline for precise timing
+                    mpd.push_str("          <SegmentTimeline>\n");
+                    for segment in &self.segments {
+                        let seg_duration_ms = segment.duration.as_millis();
+                        mpd.push_str(&format!("            <S d=\"{}\" />\n", seg_duration_ms));
+                    }
+                    mpd.push_str("          </SegmentTimeline>\n");
+
+                    mpd.push_str("        </SegmentTemplate>\n");
+                } else {
+                    // Fallback: SegmentList
+                    mpd.push_str("        <SegmentList>\n");
+                    for segment in &self.segments {
+                        mpd.push_str(&format!("          <SegmentURL media=\"{}\" />\n", segment.filename));
+                    }
+                    mpd.push_str("        </SegmentList>\n");
+                }
+
+                mpd.push_str("      </Representation>\n");
             }
-            mpd.push_str("        </SegmentList>\n");
 
-            mpd.push_str("      </Representation>\n");
             mpd.push_str("    </AdaptationSet>\n");
         }
 

@@ -3,6 +3,7 @@
 //! Provides high-level APIs for creating adaptive streaming content
 
 use super::hls::{HlsPlaylist, HlsSegment};
+use super::dash::DashManifest;
 use super::segmenter::{Segmenter, SegmentConfig, SegmentInfo};
 use super::QualityProfile;
 use crate::error::{Error, Result};
@@ -169,10 +170,11 @@ impl DashConfig {
     }
 }
 
-/// DASH streaming pipeline (stub - similar to HLS)
+/// DASH streaming pipeline
 pub struct DashPipeline {
     config: DashConfig,
     segmenter: Segmenter,
+    manifest: DashManifest,
 }
 
 impl DashPipeline {
@@ -181,9 +183,13 @@ impl DashPipeline {
         let segment_config = SegmentConfig::new(&config.output_dir, config.segment_duration);
         let segmenter = Segmenter::new(segment_config)?;
 
+        // Create DASH manifest
+        let manifest = DashManifest::new(&config.output_dir, config.segment_duration);
+
         Ok(DashPipeline {
             config,
             segmenter,
+            manifest,
         })
     }
 
@@ -197,11 +203,39 @@ impl DashPipeline {
         self.segmenter.write_packet(packet)
     }
 
-    /// Finalize
+    /// Finalize and generate MPD manifest
     pub fn finalize(&mut self) -> Result<()> {
+        // Finalize segmentation
         self.segmenter.finalize()?;
-        // TODO: Generate MPD manifest
+
+        // Add quality profiles to manifest
+        for profile in &self.config.profiles {
+            self.manifest.add_profile(profile.clone());
+        }
+
+        // Add all segments to manifest
+        for segment in self.segmenter.segments() {
+            self.manifest.add_segment(
+                &segment.filename,
+                segment.duration,
+                segment.size,
+            );
+        }
+
+        // Save MPD manifest
+        self.manifest.save("manifest.mpd", self.config.is_live)?;
+
         Ok(())
+    }
+
+    /// Get the number of segments created
+    pub fn segment_count(&self) -> usize {
+        self.segmenter.segment_count()
+    }
+
+    /// Get segment information
+    pub fn segments(&self) -> &[SegmentInfo] {
+        self.segmenter.segments()
     }
 }
 
