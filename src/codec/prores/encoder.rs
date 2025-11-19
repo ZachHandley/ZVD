@@ -1,6 +1,8 @@
-//! ProRes encoder implementation
+//! ProRes encoder implementation - Pure Rust!
 
 use super::{ProResProfile, ProResFrameHeader};
+use super::bitstream::ProResBitstreamWriter;
+use super::slice::{Slice, SliceEncoder};
 use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
@@ -12,6 +14,7 @@ pub struct ProResEncoder {
     width: u32,
     height: u32,
     frame_count: u64,
+    qp: u8,
     pending_packet: Option<Packet>,
 }
 
@@ -27,8 +30,14 @@ impl ProResEncoder {
             width,
             height,
             frame_count: 0,
+            qp: 16, // Default QP
             pending_packet: None,
         })
+    }
+
+    /// Set quantization parameter (0-255)
+    pub fn set_qp(&mut self, qp: u8) {
+        self.qp = qp;
     }
 
     /// Get the profile
@@ -87,31 +96,37 @@ impl ProResEncoder {
         data
     }
 
-    /// Encode frame data (placeholder)
+    /// Encode frame data using our pure Rust implementation!
     fn encode_frame_data(&self, frame: &VideoFrame) -> Result<Vec<u8>> {
-        // Placeholder - actual ProRes encoding is complex, involving:
-        // - DCT transformation
-        // - Quantization
-        // - Slice encoding
-        // - Frame data organization
-        //
-        // Would typically use a library like libavcodec or implement
-        // the full ProRes specification
+        let width = self.width as usize;
+        let height = self.height as usize;
 
-        // For now, return a minimal valid structure
-        let mut data = Vec::new();
-
-        // Picture header
-        data.push(0x00); // Picture header size
-
-        // Slice data placeholder
-        let slice_count = (self.height + 15) / 16; // Slices are typically 16 lines
-        for _ in 0..slice_count {
-            // Slice header and data placeholder
-            data.extend_from_slice(&[0x00; 128]); // Minimal slice
+        // Convert Y plane to i16 (subtract 128 for signed values)
+        let mut y_plane = vec![0i16; width * height];
+        for i in 0..y_plane.len().min(frame.y_plane.len()) {
+            y_plane[i] = frame.y_plane[i] as i16 - 128;
         }
 
-        Ok(data)
+        // Create slice encoder
+        let encoder = SliceEncoder::new(self.profile, width, height, self.qp);
+
+        // Encode slices (16 lines per slice)
+        let slice_height = 16;
+        let mut slices = Vec::new();
+
+        for y in (0..height).step_by(slice_height) {
+            let actual_height = slice_height.min(height - y);
+            let slice = encoder.encode_slice(&y_plane, y, actual_height)?;
+            slices.push(slice);
+        }
+
+        // Write slices to bitstream
+        let mut writer = ProResBitstreamWriter::new();
+        for mut slice in slices {
+            slice.encode(&mut writer);
+        }
+
+        Ok(writer.finish())
     }
 }
 
@@ -182,6 +197,13 @@ mod tests {
     }
 
     #[test]
+    fn test_prores_encoder_set_qp() {
+        let mut encoder = ProResEncoder::new(1920, 1080, ProResProfile::Standard).unwrap();
+        encoder.set_qp(20);
+        assert_eq!(encoder.qp, 20);
+    }
+
+    #[test]
     fn test_prores_encode_frame() {
         let mut encoder = ProResEncoder::new(1920, 1080, ProResProfile::Standard).unwrap();
         let mut frame = VideoFrame::new(1920, 1080, PixelFormat::YUV420P);
@@ -196,5 +218,41 @@ mod tests {
         let packet = packet_result.unwrap();
         assert!(packet.data.len() > 0);
         assert!(packet.is_keyframe());
+    }
+
+    #[test]
+    fn test_prores_encoder_all_profiles() {
+        let profiles = vec![
+            ProResProfile::Proxy,
+            ProResProfile::Lt,
+            ProResProfile::Standard,
+            ProResProfile::Hq,
+            ProResProfile::FourFourFourFour,
+            ProResProfile::FourFourFourFourXq,
+        ];
+
+        for profile in profiles {
+            let encoder = ProResEncoder::new(320, 240, profile);
+            assert!(encoder.is_ok(), "Failed to create encoder for {:?}", profile);
+        }
+    }
+
+    #[test]
+    fn test_prores_encode_small_frame() {
+        let mut encoder = ProResEncoder::new(16, 16, ProResProfile::Standard).unwrap();
+        let mut frame = VideoFrame::new(16, 16, PixelFormat::YUV420P);
+
+        // Fill with test pattern
+        for i in 0..frame.y_plane.len() {
+            frame.y_plane[i] = (i % 256) as u8;
+        }
+
+        frame.pts = Timestamp::new(0);
+
+        let send_result = encoder.send_frame(&Frame::Video(frame));
+        assert!(send_result.is_ok());
+
+        let packet = encoder.receive_packet().unwrap();
+        assert!(packet.data.len() > 148); // Header + some data
     }
 }
