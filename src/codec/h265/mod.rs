@@ -24,9 +24,24 @@
 //! - [x] Integration tests (505 lines, 16 integration tests)
 //! - **Total: ~2,500 lines of pure Rust H.265 parsing code!**
 //!
-//! **Phase 8.2: Basic Intra Decoder** (Future)
-//! - [ ] Planar intra prediction
-//! - [ ] DC intra prediction
+//! **Phase 8.2: Basic Intra Decoder** (60% COMPLETE! 🚧)
+//! - [x] CTU (Coding Tree Unit) structure (380 lines, 14 unit tests)
+//! - [x] Quadtree partitioning
+//! - [x] Frame buffer management
+//! - [x] Intra prediction - Planar mode (420 lines, 11 unit tests)
+//! - [x] Intra prediction - DC mode
+//! - [x] Intra prediction - Vertical/Horizontal modes
+//! - [x] 4×4 DCT inverse transform (330 lines, 9 unit tests)
+//! - [x] 4×4 DST inverse transform
+//! - [x] Residual reconstruction
+//! - [ ] 8×8 DCT inverse transform (next)
+//! - [ ] 35 angular intra modes (next)
+//! - [ ] End-to-end I-frame decoding
+//! - **Phase 8.2 Total: ~1,130 lines, 34 tests!**
+//!
+//! **Phase 8.3: Full Intra Decoder** (Future - 0%)
+//! - [ ] All 35 angular intra modes
+//! - [ ] 8×8, 16×16, 32×32 DCT transforms
 //! - [ ] 4x4 DCT only
 //! - [ ] Basic CABAC decoder
 //! - **Goal**: Decode simple I-frames
@@ -114,10 +129,16 @@ pub mod nal;
 pub mod headers;
 pub mod bitstream;
 pub mod decoder;
+pub mod ctu;
+pub mod intra;
+pub mod transform;
 
 pub use decoder::H265Decoder;
 pub use headers::{Vps, Sps, Pps, SliceHeader, SliceType};
 pub use nal::{NalUnit, NalUnitType};
+pub use ctu::{CodingTreeUnit, CodingUnit, FrameBuffer, CtuSize, IntraMode, PredMode};
+pub use intra::{IntraPredictor, ReferenceSamples};
+pub use transform::{Transform, TransformSize};
 
 #[cfg(test)]
 mod tests {
