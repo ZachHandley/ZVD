@@ -16,6 +16,7 @@ pub mod interpolation;
 pub mod tenbit;
 pub mod edl;
 pub mod stabilization;
+pub mod burnin;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -44,6 +45,10 @@ pub use edl::{
 pub use stabilization::{
     RollingShutterCorrector, SmoothingFilter, Stabilizer, StabilizationMode,
     StabilizationStats, Trajectory, Transform2D,
+};
+pub use burnin::{
+    BurninConfig, BurninGenerator, BurninPosition, Color as BurninColor, TimecodeFormat,
+    TimecodeStyle,
 };
 
 /// Common media types
