@@ -86,7 +86,7 @@ impl Default for SubtitleStyle {
     fn default() -> Self {
         SubtitleStyle {
             font_size: 24,
-            color: [255, 255, 255], // White
+            color: [255, 255, 255],           // White
             background: Some([0, 0, 0, 180]), // Semi-transparent black
             outline: true,
         }
@@ -327,7 +327,15 @@ impl SubtitleRenderer {
 
         // Draw background if enabled
         if let Some(bg) = self.style.background {
-            self.draw_background(frame_rgb, x, y, subtitle.text.len() * 12, self.style.font_size, bg, width);
+            self.draw_background(
+                frame_rgb,
+                x,
+                y,
+                subtitle.text.len() * 12,
+                self.style.font_size,
+                bg,
+                width,
+            );
         }
 
         // Draw text (simplified rendering)
@@ -378,9 +386,12 @@ impl SubtitleRenderer {
                     let idx = (py as usize * frame_width + px as usize) * 3;
                     if idx + 2 < frame.len() {
                         let alpha = color[3] as f32 / 255.0;
-                        frame[idx] = ((1.0 - alpha) * frame[idx] as f32 + alpha * color[0] as f32) as u8;
-                        frame[idx + 1] = ((1.0 - alpha) * frame[idx + 1] as f32 + alpha * color[1] as f32) as u8;
-                        frame[idx + 2] = ((1.0 - alpha) * frame[idx + 2] as f32 + alpha * color[2] as f32) as u8;
+                        frame[idx] =
+                            ((1.0 - alpha) * frame[idx] as f32 + alpha * color[0] as f32) as u8;
+                        frame[idx + 1] =
+                            ((1.0 - alpha) * frame[idx + 1] as f32 + alpha * color[1] as f32) as u8;
+                        frame[idx + 2] =
+                            ((1.0 - alpha) * frame[idx + 2] as f32 + alpha * color[2] as f32) as u8;
                     }
                 }
             }
@@ -388,7 +399,15 @@ impl SubtitleRenderer {
     }
 
     /// Draw text (simplified)
-    fn draw_text(&self, frame: &mut [u8], text: &str, x: i32, y: i32, width: usize, _height: usize) {
+    fn draw_text(
+        &self,
+        frame: &mut [u8],
+        text: &str,
+        x: i32,
+        y: i32,
+        width: usize,
+        _height: usize,
+    ) {
         // Simplified text rendering - just draw rectangles for each character
         for (i, _ch) in text.chars().enumerate() {
             let char_x = x + (i * 12) as i32;
@@ -438,7 +457,8 @@ mod tests {
 
     #[test]
     fn test_parse_srt_timestamp() {
-        let (start, end) = SubtitleRenderer::parse_srt_timestamp("00:00:01,000 --> 00:00:04,000").unwrap();
+        let (start, end) =
+            SubtitleRenderer::parse_srt_timestamp("00:00:01,000 --> 00:00:04,000").unwrap();
         assert_eq!(start, 1.0);
         assert_eq!(end, 4.0);
     }

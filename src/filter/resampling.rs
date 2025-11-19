@@ -422,11 +422,8 @@ mod tests {
 
     #[test]
     fn test_sinc_resampling() {
-        let mut resampler = AudioResampler::new(
-            44100,
-            48000,
-            ResamplingMethod::Sinc { window_size: 32 },
-        );
+        let mut resampler =
+            AudioResampler::new(44100, 48000, ResamplingMethod::Sinc { window_size: 32 });
 
         let input: Vec<f32> = (0..100).map(|i| (i as f32 / 10.0).sin()).collect();
         let output = resampler.process(&input).unwrap();
@@ -447,11 +444,8 @@ mod tests {
 
     #[test]
     fn test_lanczos_kernel() {
-        let resampler = AudioResampler::new(
-            44100,
-            48000,
-            ResamplingMethod::Sinc { window_size: 32 },
-        );
+        let resampler =
+            AudioResampler::new(44100, 48000, ResamplingMethod::Sinc { window_size: 32 });
 
         // At x=0, sinc should be 1.0
         let val = resampler.lanczos_kernel(0.0, 3.0);

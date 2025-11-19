@@ -290,7 +290,11 @@ fn test_format_probe_signatures() {
     ];
 
     for (sig, format_name) in &signatures {
-        assert!(!sig.is_empty(), "{} signature should not be empty", format_name);
+        assert!(
+            !sig.is_empty(),
+            "{} signature should not be empty",
+            format_name
+        );
     }
 }
 

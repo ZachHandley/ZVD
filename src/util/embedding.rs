@@ -203,22 +203,30 @@ impl VideoEmbedding {
             ExtractionStrategy::Uniform(n) => {
                 // Always keep for later uniform sampling
                 if self.frames.len() < *n * 2 {
-                    self.frames.push((frame_rgb.to_vec(), self.frame_count, importance));
+                    self.frames
+                        .push((frame_rgb.to_vec(), self.frame_count, importance));
                 }
             }
             ExtractionStrategy::TopN(_) => {
                 // Keep all frames, will select top N at finalize
-                self.frames.push((frame_rgb.to_vec(), self.frame_count, importance));
+                self.frames
+                    .push((frame_rgb.to_vec(), self.frame_count, importance));
             }
-            ExtractionStrategy::Adaptive { min_frames, max_frames, importance_threshold } => {
+            ExtractionStrategy::Adaptive {
+                min_frames,
+                max_frames,
+                importance_threshold,
+            } => {
                 // Keep if important enough or under min
                 if importance.score >= *importance_threshold || self.frames.len() < *min_frames {
-                    self.frames.push((frame_rgb.to_vec(), self.frame_count, importance));
+                    self.frames
+                        .push((frame_rgb.to_vec(), self.frame_count, importance));
                 }
 
                 // Prune if over max
                 if self.frames.len() > *max_frames {
-                    self.frames.sort_by(|a, b| b.2.score.partial_cmp(&a.2.score).unwrap());
+                    self.frames
+                        .sort_by(|a, b| b.2.score.partial_cmp(&a.2.score).unwrap());
                     self.frames.truncate(*max_frames);
                 }
             }
@@ -370,7 +378,12 @@ impl VideoEmbedding {
     }
 
     /// Convert to grayscale and resize (bilinear)
-    fn to_grayscale_resized(&self, frame_rgb: &[u8], target_w: usize, target_h: usize) -> Result<Vec<u8>> {
+    fn to_grayscale_resized(
+        &self,
+        frame_rgb: &[u8],
+        target_w: usize,
+        target_h: usize,
+    ) -> Result<Vec<u8>> {
         let mut gray = vec![0u8; target_w * target_h];
 
         let x_ratio = self.width as f32 / target_w as f32;
@@ -427,8 +440,12 @@ impl VideoEmbedding {
                 for y in 0..height {
                     for x in 0..width {
                         let pixel = gray[y * width + x] as f32;
-                        let cos_x = ((2.0 * x as f32 + 1.0) * u as f32 * std::f32::consts::PI / (2.0 * width as f32)).cos();
-                        let cos_y = ((2.0 * y as f32 + 1.0) * v as f32 * std::f32::consts::PI / (2.0 * height as f32)).cos();
+                        let cos_x = ((2.0 * x as f32 + 1.0) * u as f32 * std::f32::consts::PI
+                            / (2.0 * width as f32))
+                            .cos();
+                        let cos_y = ((2.0 * y as f32 + 1.0) * v as f32 * std::f32::consts::PI
+                            / (2.0 * height as f32))
+                            .cos();
                         sum += pixel * cos_x * cos_y;
                     }
                 }
@@ -466,8 +483,12 @@ impl VideoEmbedding {
 
         // Build histograms (luma channel)
         for i in (0..prev.len()).step_by(3) {
-            let prev_luma = (0.2126 * prev[i] as f32 + 0.7152 * prev[i + 1] as f32 + 0.0722 * prev[i + 2] as f32) as usize;
-            let curr_luma = (0.2126 * curr[i] as f32 + 0.7152 * curr[i + 1] as f32 + 0.0722 * curr[i + 2] as f32) as usize;
+            let prev_luma = (0.2126 * prev[i] as f32
+                + 0.7152 * prev[i + 1] as f32
+                + 0.0722 * prev[i + 2] as f32) as usize;
+            let curr_luma = (0.2126 * curr[i] as f32
+                + 0.7152 * curr[i + 1] as f32
+                + 0.0722 * curr[i + 2] as f32) as usize;
 
             prev_hist[prev_luma.min(255)] += 1;
             curr_hist[curr_luma.min(255)] += 1;

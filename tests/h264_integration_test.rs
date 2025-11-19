@@ -105,7 +105,10 @@ fn test_h264_encoding_pipeline() {
         }
     }
 
-    assert!(packet_count > 0, "Should receive at least one encoded packet");
+    assert!(
+        packet_count > 0,
+        "Should receive at least one encoded packet"
+    );
 }
 
 /// Test H.264 encode-decode roundtrip
@@ -317,5 +320,8 @@ fn test_h264_not_available_without_feature() {
     use zvd_lib::codec::create_encoder;
 
     let encoder = create_encoder("h264", 640, 480);
-    assert!(encoder.is_err(), "H.264 should not be available without feature flag");
+    assert!(
+        encoder.is_err(),
+        "H.264 should not be available without feature flag"
+    );
 }

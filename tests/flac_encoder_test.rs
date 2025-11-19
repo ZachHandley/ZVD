@@ -24,11 +24,7 @@ fn test_flac_encoder_sample_rates() {
 
     for &rate in &rates {
         let encoder = FlacEncoder::new(rate, 2);
-        assert!(
-            encoder.is_ok(),
-            "Should support sample rate {} Hz",
-            rate
-        );
+        assert!(encoder.is_ok(), "Should support sample rate {} Hz", rate);
     }
 }
 
@@ -39,11 +35,7 @@ fn test_flac_encoder_channels() {
 
     for &ch in &channels {
         let encoder = FlacEncoder::new(44100, ch);
-        assert!(
-            encoder.is_ok(),
-            "Should support {} channels",
-            ch
-        );
+        assert!(encoder.is_ok(), "Should support {} channels", ch);
     }
 }
 
@@ -129,7 +121,10 @@ fn test_flac_encoder_i16_samples() {
     assert!(encoder.flush().is_ok());
 
     // Should have received at least header packet
-    assert!(encoder.receive_packet().is_ok(), "Should have stream header");
+    assert!(
+        encoder.receive_packet().is_ok(),
+        "Should have stream header"
+    );
 }
 
 /// Test FLAC encoder with F32 samples
@@ -180,7 +175,9 @@ fn test_flac_encoder_multiple_frames() {
         frame.data.push(Buffer::from_vec(samples));
         frame.pts = Timestamp::new(i * 4096);
 
-        encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+        encoder
+            .send_frame(&Frame::Audio(frame))
+            .expect("Failed to encode");
     }
 
     encoder.flush().expect("Failed to flush");
@@ -285,7 +282,9 @@ fn test_flac_encoder_mono() {
     frame.data.push(Buffer::from_vec(samples));
     frame.pts = Timestamp::new(0);
 
-    encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Audio(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
 
     assert!(encoder.receive_packet().is_ok());
@@ -308,7 +307,9 @@ fn test_flac_encoder_surround() {
     frame.data.push(Buffer::from_vec(samples));
     frame.pts = Timestamp::new(0);
 
-    encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Audio(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
 
     assert!(encoder.receive_packet().is_ok());
@@ -343,7 +344,9 @@ fn test_flac_encoder_timestamps() {
     frame.data.push(Buffer::from_vec(samples));
     frame.pts = Timestamp::new(12345);
 
-    encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Audio(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
 
     // Get header packet

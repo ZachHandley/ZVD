@@ -35,7 +35,7 @@ use std::collections::VecDeque;
 
 /// VU Meter (Volume Unit)
 ///
-//! Ballistic response meter with ~300ms integration time
+/// Ballistic response meter with ~300ms integration time
 pub struct VuMeter {
     /// Sample rate
     sample_rate: u32,
@@ -80,8 +80,8 @@ impl VuMeter {
             // Ballistic response
             if abs_sample > self.current_level {
                 // Attack
-                self.current_level = self.attack_coeff * self.current_level
-                    + (1.0 - self.attack_coeff) * abs_sample;
+                self.current_level =
+                    self.attack_coeff * self.current_level + (1.0 - self.attack_coeff) * abs_sample;
             } else {
                 // Release
                 self.current_level = self.release_coeff * self.current_level

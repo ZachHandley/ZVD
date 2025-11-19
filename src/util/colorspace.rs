@@ -333,7 +333,12 @@ impl ColorConverter {
     }
 
     /// Convert RGB buffer to YUV420P planar format
-    pub fn rgb_buffer_to_yuv420p(&self, rgb_data: &[u8], width: usize, height: usize) -> Result<Vec<Vec<u8>>> {
+    pub fn rgb_buffer_to_yuv420p(
+        &self,
+        rgb_data: &[u8],
+        width: usize,
+        height: usize,
+    ) -> Result<Vec<Vec<u8>>> {
         if rgb_data.len() != width * height * 3 {
             return Err(crate::error::Error::InvalidInput(format!(
                 "RGB buffer size mismatch: expected {}, got {}",
@@ -369,15 +374,28 @@ impl ColorConverter {
     }
 
     /// Convert YUV420P planar format to RGB buffer
-    pub fn yuv420p_to_rgb_buffer(&self, y_plane: &[u8], u_plane: &[u8], v_plane: &[u8], width: usize, height: usize) -> Result<Vec<u8>> {
+    pub fn yuv420p_to_rgb_buffer(
+        &self,
+        y_plane: &[u8],
+        u_plane: &[u8],
+        v_plane: &[u8],
+        width: usize,
+        height: usize,
+    ) -> Result<Vec<u8>> {
         if y_plane.len() != width * height {
-            return Err(crate::error::Error::InvalidInput("Y plane size mismatch".to_string()));
+            return Err(crate::error::Error::InvalidInput(
+                "Y plane size mismatch".to_string(),
+            ));
         }
         if u_plane.len() != (width / 2) * (height / 2) {
-            return Err(crate::error::Error::InvalidInput("U plane size mismatch".to_string()));
+            return Err(crate::error::Error::InvalidInput(
+                "U plane size mismatch".to_string(),
+            ));
         }
         if v_plane.len() != (width / 2) * (height / 2) {
-            return Err(crate::error::Error::InvalidInput("V plane size mismatch".to_string()));
+            return Err(crate::error::Error::InvalidInput(
+                "V plane size mismatch".to_string(),
+            ));
         }
 
         let mut rgb_data = vec![0u8; width * height * 3];

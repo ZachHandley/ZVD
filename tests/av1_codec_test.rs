@@ -31,7 +31,9 @@ fn create_test_frame(
         PixelFormat::YUV420P => {
             // Y plane (full resolution)
             let y_size = (width * height) as usize;
-            frame.data.push(Buffer::from_vec(vec![fill_pattern; y_size]));
+            frame
+                .data
+                .push(Buffer::from_vec(vec![fill_pattern; y_size]));
             frame.linesize.push(width as usize);
 
             // U plane (half width, half height)
@@ -48,7 +50,9 @@ fn create_test_frame(
         PixelFormat::YUV422P => {
             // Y plane (full resolution)
             let y_size = (width * height) as usize;
-            frame.data.push(Buffer::from_vec(vec![fill_pattern; y_size]));
+            frame
+                .data
+                .push(Buffer::from_vec(vec![fill_pattern; y_size]));
             frame.linesize.push(width as usize);
 
             // U plane (half width, full height)
@@ -64,7 +68,9 @@ fn create_test_frame(
         PixelFormat::YUV444P => {
             // Y plane (full resolution)
             let y_size = (width * height) as usize;
-            frame.data.push(Buffer::from_vec(vec![fill_pattern; y_size]));
+            frame
+                .data
+                .push(Buffer::from_vec(vec![fill_pattern; y_size]));
             frame.linesize.push(width as usize);
 
             // U plane (full resolution)
@@ -298,8 +304,8 @@ fn test_av1_multiple_frames_round_trip() {
     }
 
     // Encode frames
-    let packets = encode_frames(width, height, 10, 120, 30, test_frames)
-        .expect("Failed to encode frames");
+    let packets =
+        encode_frames(width, height, 10, 120, 30, test_frames).expect("Failed to encode frames");
 
     assert!(
         packets.len() >= num_frames as usize,
@@ -310,8 +316,7 @@ fn test_av1_multiple_frames_round_trip() {
 
     // Decode packets
     let mut decoder = Av1Decoder::new().expect("Failed to create decoder");
-    let decoded_frames = decode_packets(&mut decoder, packets)
-        .expect("Failed to decode packets");
+    let decoded_frames = decode_packets(&mut decoder, packets).expect("Failed to decode packets");
 
     assert_eq!(
         decoded_frames.len(),
@@ -338,10 +343,7 @@ fn test_av1_different_pixel_formats() {
     // Note: rav1e encoder primarily supports YUV420P for 8-bit encoding.
     // Other formats like YUV422P and YUV444P may be converted internally to YUV420P.
     // We test YUV420P (natively supported) and GRAY8 (grayscale).
-    let formats = vec![
-        PixelFormat::YUV420P,
-        PixelFormat::GRAY8,
-    ];
+    let formats = vec![PixelFormat::YUV420P, PixelFormat::GRAY8];
 
     for format in formats {
         println!("Testing format: {:?}", format);
@@ -423,10 +425,7 @@ fn test_av1_different_pixel_formats() {
         .expect("Failed to create encoder");
 
     let result = encoder.send_frame(&Frame::Video(rgb_frame));
-    assert!(
-        result.is_err(),
-        "RGB24 should be rejected by AV1 encoder"
-    );
+    assert!(result.is_err(), "RGB24 should be rejected by AV1 encoder");
 }
 
 #[test]
@@ -459,22 +458,14 @@ fn test_av1_keyframe_handling() {
 
     // Verify packets have valid timestamps
     for (i, packet) in packets.iter().enumerate() {
-        assert!(
-            packet.pts.is_valid(),
-            "Packet {} should have valid PTS",
-            i
-        );
+        assert!(packet.pts.is_valid(), "Packet {} should have valid PTS", i);
     }
 
     // Decode and verify
     let mut decoder = Av1Decoder::new().expect("Failed to create decoder");
-    let decoded_frames = decode_packets(&mut decoder, packets)
-        .expect("Failed to decode");
+    let decoded_frames = decode_packets(&mut decoder, packets).expect("Failed to decode");
 
-    assert!(
-        !decoded_frames.is_empty(),
-        "Should have decoded frames"
-    );
+    assert!(!decoded_frames.is_empty(), "Should have decoded frames");
 }
 
 #[test]
@@ -656,8 +647,7 @@ fn test_av1_timestamp_preservation() {
     }
 
     // Encode
-    let packets = encode_frames(width, height, 10, 100, 240, frames)
-        .expect("Failed to encode");
+    let packets = encode_frames(width, height, 10, 100, 240, frames).expect("Failed to encode");
 
     // Verify packets have timestamps
     for (i, packet) in packets.iter().enumerate() {
@@ -670,8 +660,7 @@ fn test_av1_timestamp_preservation() {
 
     // Decode and verify timestamps are preserved
     let mut decoder = Av1Decoder::new().expect("Failed to create decoder");
-    let decoded_frames = decode_packets(&mut decoder, packets)
-        .expect("Failed to decode");
+    let decoded_frames = decode_packets(&mut decoder, packets).expect("Failed to decode");
 
     assert_eq!(decoded_frames.len(), 5, "Should decode 5 frames");
 
@@ -704,10 +693,7 @@ fn test_av1_error_handling() {
     rgb_frame.linesize.push((width * 3) as usize);
 
     let result = encoder.send_frame(&Frame::Video(rgb_frame));
-    assert!(
-        result.is_err(),
-        "Should reject unsupported pixel format"
-    );
+    assert!(result.is_err(), "Should reject unsupported pixel format");
 
     // Test sending audio frame to video encoder
     use zvd_lib::codec::frame::AudioFrame;
@@ -715,10 +701,7 @@ fn test_av1_error_handling() {
 
     let audio_frame = AudioFrame::new(1024, 48000, 2, SampleFormat::I16);
     let result = encoder.send_frame(&Frame::Audio(audio_frame));
-    assert!(
-        result.is_err(),
-        "Should reject audio frames"
-    );
+    assert!(result.is_err(), "Should reject audio frames");
 }
 
 #[test]

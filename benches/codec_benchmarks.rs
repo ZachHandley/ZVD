@@ -2,8 +2,10 @@
 //!
 //! Benchmarks for video and audio codec encode/decode performance
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput, BenchmarkId};
-use zvd_lib::codec::{create_encoder, create_decoder, Encoder, Decoder, Frame, VideoFrame, AudioFrame};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use zvd_lib::codec::{
+    create_decoder, create_encoder, AudioFrame, Decoder, Encoder, Frame, VideoFrame,
+};
 use zvd_lib::util::{Buffer, PixelFormat, SampleFormat, Timestamp};
 
 /// Create a test video frame with the specified dimensions
@@ -11,7 +13,9 @@ fn create_test_video_frame(width: u32, height: u32) -> VideoFrame {
     let mut frame = VideoFrame::new(width, height, PixelFormat::YUV420P);
 
     // Y plane
-    frame.data.push(Buffer::from_vec(vec![100u8; (width * height) as usize]));
+    frame
+        .data
+        .push(Buffer::from_vec(vec![100u8; (width * height) as usize]));
     frame.linesize.push(width as usize);
 
     // U plane (half size)
@@ -60,11 +64,12 @@ fn bench_av1_encode(c: &mut Criterion) {
             &(width, height),
             |b, &(w, h)| {
                 b.iter(|| {
-                    let mut encoder = create_encoder("av1", w, h)
-                        .expect("Failed to create encoder");
+                    let mut encoder =
+                        create_encoder("av1", w, h).expect("Failed to create encoder");
                     let frame = create_test_video_frame(w, h);
 
-                    encoder.send_frame(&Frame::Video(frame))
+                    encoder
+                        .send_frame(&Frame::Video(frame))
                         .expect("Failed to encode");
                     encoder.flush().expect("Failed to flush");
 
@@ -87,10 +92,11 @@ fn bench_av1_decode(c: &mut Criterion) {
     let pixels = width * height;
 
     // Pre-encode a frame
-    let mut encoder = create_encoder("av1", width, height)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", width, height).expect("Failed to create encoder");
     let frame = create_test_video_frame(width, height);
-    encoder.send_frame(&Frame::Video(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Video(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
     let packet = encoder.receive_packet().expect("Failed to receive packet");
 
@@ -98,10 +104,10 @@ fn bench_av1_decode(c: &mut Criterion) {
 
     group.bench_function("720p", |b| {
         b.iter(|| {
-            let mut decoder = create_decoder("av1")
-                .expect("Failed to create decoder");
+            let mut decoder = create_decoder("av1").expect("Failed to create decoder");
 
-            decoder.send_packet(black_box(&packet))
+            decoder
+                .send_packet(black_box(&packet))
                 .expect("Failed to decode");
 
             let _ = decoder.receive_frame();
@@ -125,11 +131,12 @@ fn bench_h264_encode(c: &mut Criterion) {
             &(width, height),
             |b, &(w, h)| {
                 b.iter(|| {
-                    let mut encoder = create_encoder("h264", w, h)
-                        .expect("Failed to create encoder");
+                    let mut encoder =
+                        create_encoder("h264", w, h).expect("Failed to create encoder");
                     let frame = create_test_video_frame(w, h);
 
-                    encoder.send_frame(&Frame::Video(frame))
+                    encoder
+                        .send_frame(&Frame::Video(frame))
                         .expect("Failed to encode");
                     encoder.flush().expect("Failed to flush");
 
@@ -152,10 +159,11 @@ fn bench_h264_decode(c: &mut Criterion) {
     let pixels = width * height;
 
     // Pre-encode a frame
-    let mut encoder = create_encoder("h264", width, height)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("h264", width, height).expect("Failed to create encoder");
     let frame = create_test_video_frame(width, height);
-    encoder.send_frame(&Frame::Video(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Video(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
     let packet = encoder.receive_packet().expect("Failed to receive packet");
 
@@ -163,10 +171,10 @@ fn bench_h264_decode(c: &mut Criterion) {
 
     group.bench_function("720p", |b| {
         b.iter(|| {
-            let mut decoder = create_decoder("h264")
-                .expect("Failed to create decoder");
+            let mut decoder = create_decoder("h264").expect("Failed to create decoder");
 
-            decoder.send_packet(black_box(&packet))
+            decoder
+                .send_packet(black_box(&packet))
                 .expect("Failed to decode");
 
             let _ = decoder.receive_frame();
@@ -190,11 +198,12 @@ fn bench_vp8_encode(c: &mut Criterion) {
             &(width, height),
             |b, &(w, h)| {
                 b.iter(|| {
-                    let mut encoder = create_encoder("vp8", w, h)
-                        .expect("Failed to create encoder");
+                    let mut encoder =
+                        create_encoder("vp8", w, h).expect("Failed to create encoder");
                     let frame = create_test_video_frame(w, h);
 
-                    encoder.send_frame(&Frame::Video(frame))
+                    encoder
+                        .send_frame(&Frame::Video(frame))
                         .expect("Failed to encode");
                     encoder.flush().expect("Failed to flush");
 
@@ -221,11 +230,12 @@ fn bench_vp9_encode(c: &mut Criterion) {
             &(width, height),
             |b, &(w, h)| {
                 b.iter(|| {
-                    let mut encoder = create_encoder("vp9", w, h)
-                        .expect("Failed to create encoder");
+                    let mut encoder =
+                        create_encoder("vp9", w, h).expect("Failed to create encoder");
                     let frame = create_test_video_frame(w, h);
 
-                    encoder.send_frame(&Frame::Video(frame))
+                    encoder
+                        .send_frame(&Frame::Video(frame))
                         .expect("Failed to encode");
                     encoder.flush().expect("Failed to flush");
 
@@ -271,10 +281,12 @@ fn bench_opus_decode(c: &mut Criterion) {
     let channels = 2;
 
     // Pre-encode a frame
-    let mut encoder = zvd_lib::codec::opus::OpusEncoder::new(48000, channels)
-        .expect("Failed to create encoder");
+    let mut encoder =
+        zvd_lib::codec::opus::OpusEncoder::new(48000, channels).expect("Failed to create encoder");
     let frame = create_test_audio_frame(samples, channels);
-    encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Audio(frame))
+        .expect("Failed to encode");
     let packet = encoder.receive_packet().expect("Failed to receive packet");
 
     group.throughput(Throughput::Elements((samples * channels) as u64));
@@ -284,7 +296,8 @@ fn bench_opus_decode(c: &mut Criterion) {
             let mut decoder = zvd_lib::codec::opus::OpusDecoder::new(48000, channels)
                 .expect("Failed to create decoder");
 
-            decoder.send_packet(black_box(&packet))
+            decoder
+                .send_packet(black_box(&packet))
                 .expect("Failed to decode");
 
             let _ = decoder.receive_frame();

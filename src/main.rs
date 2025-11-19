@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::path::PathBuf;
 use tracing::info;
-use zvd_lib::{Config, init};
+use zvd_lib::{init, Config};
 
 #[derive(Parser)]
 #[command(name = "zvd")]
@@ -206,10 +206,7 @@ fn cmd_info(input: &PathBuf) -> anyhow::Result<()> {
 
         if let Some(duration) = stream.info.nb_frames {
             println!("  Frames: {}", duration);
-            println!(
-                "  Duration: {:.2}s",
-                stream.info.duration_seconds()
-            );
+            println!("  Duration: {:.2}s", stream.info.duration_seconds());
         }
 
         // Audio-specific info
@@ -261,8 +258,8 @@ fn cmd_convert(
     println!("Converting {} -> {}", input.display(), output.display());
 
     // Open input demuxer
-    let mut demuxer = create_demuxer(input)
-        .map_err(|e| anyhow::anyhow!("Failed to open input: {}", e))?;
+    let mut demuxer =
+        create_demuxer(input).map_err(|e| anyhow::anyhow!("Failed to open input: {}", e))?;
 
     // Get input streams
     let streams = demuxer.streams();
@@ -293,10 +290,7 @@ fn cmd_convert(
         fmt
     } else {
         // Detect from extension
-        let ext = output
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("wav");
+        let ext = output.extension().and_then(|e| e.to_str()).unwrap_or("wav");
         ext.to_string()
     };
 
@@ -305,16 +299,12 @@ fn cmd_convert(
 
     // Only support WAV for now
     if output_format != "wav" {
-        return Err(anyhow::anyhow!(
-            "Only WAV output is currently supported"
-        ));
+        return Err(anyhow::anyhow!("Only WAV output is currently supported"));
     }
 
     // Only support PCM codec for now
     if audio_stream.info.codec_id != "pcm" {
-        return Err(anyhow::anyhow!(
-            "Only PCM codec is currently supported"
-        ));
+        return Err(anyhow::anyhow!("Only PCM codec is currently supported"));
     }
 
     // Parse sample format
@@ -333,11 +323,7 @@ fn cmd_convert(
     };
 
     // Create decoder
-    let pcm_config = PcmConfig::new(
-        sample_format,
-        audio_info.channels,
-        audio_info.sample_rate,
-    );
+    let pcm_config = PcmConfig::new(sample_format, audio_info.channels, audio_info.sample_rate);
     let decoder = PcmDecoder::new(pcm_config.clone());
 
     // Create encoder (same config for now)
@@ -395,7 +381,11 @@ fn cmd_convert(
         packets_processed += 1;
 
         if packets_processed % 10 == 0 {
-            print!("\rProcessed {} packets ({} KB)...", packets_processed, total_bytes / 1024);
+            print!(
+                "\rProcessed {} packets ({} KB)...",
+                packets_processed,
+                total_bytes / 1024
+            );
             std::io::stdout().flush().ok();
         }
     }

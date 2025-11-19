@@ -438,13 +438,15 @@ impl BilateralFilter {
 
                             // Spatial weight (Gaussian)
                             let spatial_dist = ((dx * dx + dy * dy) as f32).sqrt();
-                            let spatial_weight =
-                                (-spatial_dist * spatial_dist / (2.0 * self.spatial_sigma * self.spatial_sigma)).exp();
+                            let spatial_weight = (-spatial_dist * spatial_dist
+                                / (2.0 * self.spatial_sigma * self.spatial_sigma))
+                                .exp();
 
                             // Range weight (color similarity)
                             let color_diff = sample_value - center_value;
-                            let range_weight =
-                                (-color_diff * color_diff / (2.0 * self.range_sigma * self.range_sigma)).exp();
+                            let range_weight = (-color_diff * color_diff
+                                / (2.0 * self.range_sigma * self.range_sigma))
+                                .exp();
 
                             let weight = spatial_weight * range_weight;
 

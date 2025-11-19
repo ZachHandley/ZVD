@@ -56,23 +56,38 @@ impl AspectRatio {
 
     /// Common aspect ratios
     pub fn ratio_4_3() -> Self {
-        AspectRatio { width: 4, height: 3 }
+        AspectRatio {
+            width: 4,
+            height: 3,
+        }
     }
 
     pub fn ratio_16_9() -> Self {
-        AspectRatio { width: 16, height: 9 }
+        AspectRatio {
+            width: 16,
+            height: 9,
+        }
     }
 
     pub fn ratio_21_9() -> Self {
-        AspectRatio { width: 21, height: 9 }
+        AspectRatio {
+            width: 21,
+            height: 9,
+        }
     }
 
     pub fn ratio_1_1() -> Self {
-        AspectRatio { width: 1, height: 1 }
+        AspectRatio {
+            width: 1,
+            height: 1,
+        }
     }
 
     pub fn ratio_9_16() -> Self {
-        AspectRatio { width: 9, height: 16 }
+        AspectRatio {
+            width: 9,
+            height: 16,
+        }
     }
 
     /// Calculate decimal ratio
@@ -175,11 +190,21 @@ impl AspectRatioConverter {
         }
 
         match self.mode {
-            FitMode::Fit => self.convert_fit(src_rgb, src_width, src_height, target_width, target_height),
-            FitMode::Fill => self.convert_fill(src_rgb, src_width, src_height, target_width, target_height),
-            FitMode::Stretch => self.convert_stretch(src_rgb, src_width, src_height, target_width, target_height),
-            FitMode::Letterbox => self.convert_letterbox(src_rgb, src_width, src_height, target_width, target_height),
-            FitMode::Pillarbox => self.convert_pillarbox(src_rgb, src_width, src_height, target_width, target_height),
+            FitMode::Fit => {
+                self.convert_fit(src_rgb, src_width, src_height, target_width, target_height)
+            }
+            FitMode::Fill => {
+                self.convert_fill(src_rgb, src_width, src_height, target_width, target_height)
+            }
+            FitMode::Stretch => {
+                self.convert_stretch(src_rgb, src_width, src_height, target_width, target_height)
+            }
+            FitMode::Letterbox => {
+                self.convert_letterbox(src_rgb, src_width, src_height, target_width, target_height)
+            }
+            FitMode::Pillarbox => {
+                self.convert_pillarbox(src_rgb, src_width, src_height, target_width, target_height)
+            }
         }
     }
 
@@ -219,7 +244,13 @@ impl AspectRatioConverter {
 
         if scaled_height > target_height {
             // Fallback to pillarbox
-            return self.convert_pillarbox(src_rgb, src_width, src_height, target_width, target_height);
+            return self.convert_pillarbox(
+                src_rgb,
+                src_width,
+                src_height,
+                target_width,
+                target_height,
+            );
         }
 
         // Create output buffer with bars
@@ -234,7 +265,8 @@ impl AspectRatioConverter {
         let y_offset = (target_height - scaled_height) / 2;
 
         // Scale and copy image
-        let scaled = self.bilinear_scale(src_rgb, src_width, src_height, target_width, scaled_height)?;
+        let scaled =
+            self.bilinear_scale(src_rgb, src_width, src_height, target_width, scaled_height)?;
 
         // Copy scaled image to center
         for y in 0..scaled_height {
@@ -264,7 +296,13 @@ impl AspectRatioConverter {
 
         if scaled_width > target_width {
             // Fallback to letterbox
-            return self.convert_letterbox(src_rgb, src_width, src_height, target_width, target_height);
+            return self.convert_letterbox(
+                src_rgb,
+                src_width,
+                src_height,
+                target_width,
+                target_height,
+            );
         }
 
         // Create output buffer with bars
@@ -279,7 +317,8 @@ impl AspectRatioConverter {
         let x_offset = (target_width - scaled_width) / 2;
 
         // Scale image
-        let scaled = self.bilinear_scale(src_rgb, src_width, src_height, scaled_width, target_height)?;
+        let scaled =
+            self.bilinear_scale(src_rgb, src_width, src_height, scaled_width, target_height)?;
 
         // Copy scaled image to center
         for y in 0..target_height {
@@ -311,7 +350,8 @@ impl AspectRatioConverter {
             let scale = target_height as f64 / src_height as f64;
             let scaled_width = (src_width as f64 * scale) as usize;
 
-            let scaled = self.bilinear_scale(src_rgb, src_width, src_height, scaled_width, target_height)?;
+            let scaled =
+                self.bilinear_scale(src_rgb, src_width, src_height, scaled_width, target_height)?;
 
             // Crop horizontally
             let x_offset = (scaled_width - target_width) / 2;
@@ -331,7 +371,8 @@ impl AspectRatioConverter {
             let scale = target_width as f64 / src_width as f64;
             let scaled_height = (src_height as f64 * scale) as usize;
 
-            let scaled = self.bilinear_scale(src_rgb, src_width, src_height, target_width, scaled_height)?;
+            let scaled =
+                self.bilinear_scale(src_rgb, src_width, src_height, target_width, scaled_height)?;
 
             // Crop vertically
             let y_offset = (scaled_height - target_height) / 2;

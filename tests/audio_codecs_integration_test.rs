@@ -84,7 +84,10 @@ fn test_flac_decoder_creation() {
     assert!(FlacDecoder::new(8000, 2).is_ok(), "Should support 8 kHz");
     assert!(FlacDecoder::new(48000, 2).is_ok(), "Should support 48 kHz");
     assert!(FlacDecoder::new(96000, 2).is_ok(), "Should support 96 kHz");
-    assert!(FlacDecoder::new(192000, 2).is_ok(), "Should support 192 kHz");
+    assert!(
+        FlacDecoder::new(192000, 2).is_ok(),
+        "Should support 192 kHz"
+    );
 
     // Test various channel counts
     assert!(FlacDecoder::new(44100, 1).is_ok(), "Should support mono");
@@ -127,12 +130,21 @@ fn test_vorbis_decoder_creation() {
 
     // Test various sample rates
     assert!(VorbisDecoder::new(8000, 2).is_ok(), "Should support 8 kHz");
-    assert!(VorbisDecoder::new(48000, 2).is_ok(), "Should support 48 kHz");
-    assert!(VorbisDecoder::new(96000, 2).is_ok(), "Should support 96 kHz");
+    assert!(
+        VorbisDecoder::new(48000, 2).is_ok(),
+        "Should support 48 kHz"
+    );
+    assert!(
+        VorbisDecoder::new(96000, 2).is_ok(),
+        "Should support 96 kHz"
+    );
 
     // Test various channel counts
     assert!(VorbisDecoder::new(44100, 1).is_ok(), "Should support mono");
-    assert!(VorbisDecoder::new(44100, 2).is_ok(), "Should support stereo");
+    assert!(
+        VorbisDecoder::new(44100, 2).is_ok(),
+        "Should support stereo"
+    );
     assert!(VorbisDecoder::new(44100, 6).is_ok(), "Should support 5.1");
 }
 
@@ -149,7 +161,10 @@ fn test_mp3_decoder_creation() {
     // Test standard MP3 sample rates
     assert!(Mp3Decoder::new(8000, 2).is_ok(), "Should support 8 kHz");
     assert!(Mp3Decoder::new(16000, 2).is_ok(), "Should support 16 kHz");
-    assert!(Mp3Decoder::new(22050, 2).is_ok(), "Should support 22.05 kHz");
+    assert!(
+        Mp3Decoder::new(22050, 2).is_ok(),
+        "Should support 22.05 kHz"
+    );
     assert!(Mp3Decoder::new(32000, 2).is_ok(), "Should support 32 kHz");
     assert!(Mp3Decoder::new(44100, 2).is_ok(), "Should support 44.1 kHz");
     assert!(Mp3Decoder::new(48000, 2).is_ok(), "Should support 48 kHz");
@@ -189,14 +204,32 @@ fn test_aac_decoder_creation() {
     assert!(decoder.is_ok(), "Should create decoder with valid config");
 
     // Test various sample rates
-    assert!(AacDecoder::new(8000, 2, None).is_ok(), "Should support 8 kHz");
-    assert!(AacDecoder::new(48000, 2, None).is_ok(), "Should support 48 kHz");
-    assert!(AacDecoder::new(96000, 2, None).is_ok(), "Should support 96 kHz");
+    assert!(
+        AacDecoder::new(8000, 2, None).is_ok(),
+        "Should support 8 kHz"
+    );
+    assert!(
+        AacDecoder::new(48000, 2, None).is_ok(),
+        "Should support 48 kHz"
+    );
+    assert!(
+        AacDecoder::new(96000, 2, None).is_ok(),
+        "Should support 96 kHz"
+    );
 
     // Test various channel counts
-    assert!(AacDecoder::new(44100, 1, None).is_ok(), "Should support mono");
-    assert!(AacDecoder::new(44100, 2, None).is_ok(), "Should support stereo");
-    assert!(AacDecoder::new(44100, 6, None).is_ok(), "Should support 5.1");
+    assert!(
+        AacDecoder::new(44100, 1, None).is_ok(),
+        "Should support mono"
+    );
+    assert!(
+        AacDecoder::new(44100, 2, None).is_ok(),
+        "Should support stereo"
+    );
+    assert!(
+        AacDecoder::new(44100, 6, None).is_ok(),
+        "Should support 5.1"
+    );
 }
 
 /// Test AAC decoder validation
