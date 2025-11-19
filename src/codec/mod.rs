@@ -35,6 +35,9 @@ pub mod vp9;
 pub mod prores;
 pub mod dnxhd;
 
+// Multi-pass encoding support
+pub mod multipass;
+
 pub use av1::{Av1Decoder, Av1Encoder};
 pub use decoder::{create_decoder, Decoder, DecoderContext};
 pub use encoder::{create_audio_encoder, create_encoder, Encoder, EncoderContext};
@@ -65,6 +68,10 @@ pub use vp9::{Vp9Decoder, Vp9Encoder};
 
 pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};
 pub use dnxhd::{DnxhdDecoder, DnxhdEncoder, DnxhdProfile};
+pub use multipass::{
+    ComplexityAnalyzer, FrameStats, FrameType, MultiPassEncoder, PassStatistics, PassType,
+    RateControlMode,
+};
 
 use crate::error::Result;
 use crate::util::MediaType;
