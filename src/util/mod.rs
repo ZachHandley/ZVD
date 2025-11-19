@@ -22,6 +22,7 @@ pub mod telecine;
 pub mod detection;
 pub mod watermark;
 pub mod alpha;
+pub mod captions;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -65,6 +66,7 @@ pub use detection::{
 };
 pub use watermark::{Watermark, WatermarkPosition, WatermarkStyle, WatermarkType};
 pub use alpha::{AlphaCompositor, AlphaMask, AlphaType, CompositeOp, RgbaFrame};
+pub use captions::{CaptionPosition, Subtitle, SubtitleFormat, SubtitleRenderer, SubtitleStyle};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
