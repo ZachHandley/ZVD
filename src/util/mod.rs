@@ -10,6 +10,7 @@ pub mod samplefmt;
 pub mod thumbnail;
 pub mod quality;
 pub mod lut;
+pub mod scopes;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -22,6 +23,7 @@ pub use thumbnail::{
     FrameData, FrameQuality, SceneDetector, ThumbnailGenerator, ThumbnailMethod,
 };
 pub use quality::{calculate_psnr, calculate_ssim, QualityComparison, QualityMetrics};
+pub use scopes::{Histogram, VectorscopeYUV, WaveformMode, WaveformScope};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
