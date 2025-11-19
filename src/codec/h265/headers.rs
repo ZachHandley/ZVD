@@ -468,6 +468,221 @@ impl Pps {
     }
 }
 
+/// Slice type enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SliceType {
+    /// B slice (bi-predictive)
+    B = 0,
+    /// P slice (predictive)
+    P = 1,
+    /// I slice (intra)
+    I = 2,
+}
+
+impl SliceType {
+    /// Parse slice type from ue(v) value
+    pub fn from_ue(value: u32) -> Result<Self> {
+        match value {
+            0 => Ok(SliceType::B),
+            1 => Ok(SliceType::P),
+            2 => Ok(SliceType::I),
+            // H.265 spec allows 3-9 for B/P/I with special meanings (non-reference)
+            3 => Ok(SliceType::B), // B (non-reference)
+            4 => Ok(SliceType::P), // P (non-reference)
+            5 => Ok(SliceType::I), // I (non-reference)
+            6 => Ok(SliceType::B), // B (non-reference, alternative)
+            7 => Ok(SliceType::P), // P (non-reference, alternative)
+            8 => Ok(SliceType::I), // I (non-reference, alternative)
+            9 => Ok(SliceType::I), // I (non-reference, alternative)
+            _ => Err(Error::codec(format!("Invalid slice type: {}", value))),
+        }
+    }
+
+    /// Check if this is an I slice
+    pub fn is_intra(&self) -> bool {
+        matches!(self, SliceType::I)
+    }
+
+    /// Check if this is a P slice
+    pub fn is_predictive(&self) -> bool {
+        matches!(self, SliceType::P)
+    }
+
+    /// Check if this is a B slice
+    pub fn is_bipredictive(&self) -> bool {
+        matches!(self, SliceType::B)
+    }
+}
+
+/// Slice Segment Header
+///
+/// Contains parameters for a single slice segment within a picture.
+/// Note: In H.265, a picture can be divided into multiple slices.
+#[derive(Debug, Clone)]
+pub struct SliceHeader {
+    /// First slice segment in picture flag
+    pub first_slice_segment_in_pic_flag: bool,
+
+    /// No output of prior pictures flag (for IRAP)
+    pub no_output_of_prior_pics_flag: bool,
+
+    /// PPS ID reference (0-63)
+    pub slice_pic_parameter_set_id: u8,
+
+    /// Dependent slice segment flag
+    pub dependent_slice_segment_flag: bool,
+
+    /// Slice segment address (CTU address)
+    pub slice_segment_address: u32,
+
+    /// Slice type (I, P, or B)
+    pub slice_type: SliceType,
+
+    /// Picture output flag
+    pub pic_output_flag: bool,
+
+    /// Colour plane ID (for 4:4:4 separate planes)
+    pub colour_plane_id: Option<u8>,
+
+    /// Slice QP delta (adjustment to PPS init_qp)
+    pub slice_qp_delta: i32,
+
+    /// Slice deblocking filter disabled flag
+    pub slice_deblocking_filter_disabled_flag: bool,
+
+    // TODO: Add more fields for full slice header parsing:
+    // - Reference picture lists
+    // - Weighted prediction parameters
+    // - Temporal MVP flags
+    // - SAO parameters
+    // - etc.
+}
+
+impl SliceHeader {
+    /// Parse slice header from RBSP data
+    ///
+    /// Note: This requires NAL unit type and parameter sets for full parsing.
+    /// For Phase 8.1, we implement essential fields only.
+    pub fn parse(
+        rbsp: &[u8],
+        nal_unit_type: u8,
+        sps: &Sps,
+        pps: &Pps,
+    ) -> Result<Self> {
+        let mut reader = BitstreamReader::new(rbsp);
+
+        // first_slice_segment_in_pic_flag (1 bit)
+        let first_slice_segment_in_pic_flag = reader.read_bool()?;
+
+        // Check if this is an IRAP picture (IDR, CRA, BLA)
+        let is_irap = nal_unit_type >= 16 && nal_unit_type <= 23;
+
+        // no_output_of_prior_pics_flag (1 bit, only for IRAP)
+        let no_output_of_prior_pics_flag = if is_irap {
+            reader.read_bool()?
+        } else {
+            false
+        };
+
+        // slice_pic_parameter_set_id (ue(v), range 0-63)
+        let slice_pic_parameter_set_id = reader.read_ue()? as u8;
+        if slice_pic_parameter_set_id > 63 {
+            return Err(Error::codec("Invalid PPS ID in slice header"));
+        }
+
+        // dependent_slice_segment_flag (only if not first slice)
+        let dependent_slice_segment_flag = if !first_slice_segment_in_pic_flag {
+            if pps.dependent_slice_segments_enabled_flag {
+                reader.read_bool()?
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // slice_segment_address (v bits, only if not first slice)
+        let slice_segment_address = if !first_slice_segment_in_pic_flag {
+            // Number of bits depends on picture size in CTUs
+            // For Phase 8.1, we'll read it as ue(v) for simplicity
+            reader.read_ue()?
+        } else {
+            0
+        };
+
+        // If this is a dependent slice, we skip most of the header
+        if dependent_slice_segment_flag {
+            // Dependent slices inherit parameters from previous slice
+            // For Phase 8.1, return minimal header
+            return Ok(SliceHeader {
+                first_slice_segment_in_pic_flag,
+                no_output_of_prior_pics_flag,
+                slice_pic_parameter_set_id,
+                dependent_slice_segment_flag,
+                slice_segment_address,
+                slice_type: SliceType::I, // Inherited from previous
+                pic_output_flag: true,
+                colour_plane_id: None,
+                slice_qp_delta: 0,
+                slice_deblocking_filter_disabled_flag: false,
+            });
+        }
+
+        // Read slice_type (ue(v))
+        let slice_type_val = reader.read_ue()?;
+        let slice_type = SliceType::from_ue(slice_type_val)?;
+
+        // pic_output_flag (1 bit, if pps.output_flag_present_flag)
+        let pic_output_flag = if pps.output_flag_present_flag {
+            reader.read_bool()?
+        } else {
+            true
+        };
+
+        // colour_plane_id (2 bits, if separate_colour_plane_flag)
+        let colour_plane_id = if sps.separate_colour_plane_flag {
+            Some(reader.read_bits(2)? as u8)
+        } else {
+            None
+        };
+
+        // For Phase 8.1, skip complex reference picture set parsing
+        // In full implementation, we'd parse:
+        // - short_term_ref_pic_set_sps_flag and related
+        // - long_term reference pictures
+        // - slice_temporal_mvp_enabled_flag
+        // - slice_sao_luma_flag, slice_sao_chroma_flag
+
+        // For now, skip to slice_qp_delta which is essential
+        // Note: This is a simplification; full parsing would handle all fields
+
+        // slice_qp_delta (se(v))
+        let slice_qp_delta = reader.read_se()?;
+
+        // slice_deblocking_filter_disabled_flag (1 bit, conditionally)
+        // For Phase 8.1, assume it's present
+        let slice_deblocking_filter_disabled_flag = reader.read_bool().unwrap_or(false);
+
+        Ok(SliceHeader {
+            first_slice_segment_in_pic_flag,
+            no_output_of_prior_pics_flag,
+            slice_pic_parameter_set_id,
+            dependent_slice_segment_flag,
+            slice_segment_address,
+            slice_type,
+            pic_output_flag,
+            colour_plane_id,
+            slice_qp_delta,
+            slice_deblocking_filter_disabled_flag,
+        })
+    }
+
+    /// Get the final QP value for this slice
+    pub fn get_qp(&self, pps: &Pps) -> i32 {
+        26 + pps.init_qp_minus26 as i32 + self.slice_qp_delta
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -967,5 +1182,324 @@ mod tests {
         // Should fail validation
         let result = Pps::parse(&pps_data);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_slice_type_from_ue() {
+        // Test standard slice types
+        assert_eq!(SliceType::from_ue(0).unwrap(), SliceType::B);
+        assert_eq!(SliceType::from_ue(1).unwrap(), SliceType::P);
+        assert_eq!(SliceType::from_ue(2).unwrap(), SliceType::I);
+
+        // Test non-reference variants (3-9)
+        assert_eq!(SliceType::from_ue(3).unwrap(), SliceType::B);
+        assert_eq!(SliceType::from_ue(4).unwrap(), SliceType::P);
+        assert_eq!(SliceType::from_ue(5).unwrap(), SliceType::I);
+        assert_eq!(SliceType::from_ue(6).unwrap(), SliceType::B);
+        assert_eq!(SliceType::from_ue(7).unwrap(), SliceType::P);
+        assert_eq!(SliceType::from_ue(8).unwrap(), SliceType::I);
+        assert_eq!(SliceType::from_ue(9).unwrap(), SliceType::I);
+
+        // Test invalid slice type
+        assert!(SliceType::from_ue(10).is_err());
+        assert!(SliceType::from_ue(100).is_err());
+    }
+
+    #[test]
+    fn test_slice_type_helpers() {
+        let i_slice = SliceType::I;
+        assert!(i_slice.is_intra());
+        assert!(!i_slice.is_predictive());
+        assert!(!i_slice.is_bipredictive());
+
+        let p_slice = SliceType::P;
+        assert!(!p_slice.is_intra());
+        assert!(p_slice.is_predictive());
+        assert!(!p_slice.is_bipredictive());
+
+        let b_slice = SliceType::B;
+        assert!(!b_slice.is_intra());
+        assert!(!b_slice.is_predictive());
+        assert!(b_slice.is_bipredictive());
+    }
+
+    #[test]
+    fn test_slice_header_parsing_i_slice() {
+        // Create minimal SPS
+        let sps = Sps {
+            sps_video_parameter_set_id: 0,
+            sps_max_sub_layers_minus1: 0,
+            sps_temporal_id_nesting_flag: false,
+            sps_seq_parameter_set_id: 0,
+            chroma_format_idc: 1,
+            separate_colour_plane_flag: false,
+            pic_width_in_luma_samples: 1920,
+            pic_height_in_luma_samples: 1080,
+            conformance_window_flag: false,
+            conf_win_left_offset: 0,
+            conf_win_right_offset: 0,
+            conf_win_top_offset: 0,
+            conf_win_bottom_offset: 0,
+            bit_depth_luma_minus8: 0,
+            bit_depth_chroma_minus8: 0,
+        };
+
+        // Create minimal PPS
+        let pps = Pps {
+            pps_pic_parameter_set_id: 0,
+            pps_seq_parameter_set_id: 0,
+            dependent_slice_segments_enabled_flag: false,
+            output_flag_present_flag: false,
+            num_extra_slice_header_bits: 0,
+            sign_data_hiding_enabled_flag: false,
+            cabac_init_present_flag: false,
+            num_ref_idx_l0_default_active_minus1: 0,
+            num_ref_idx_l1_default_active_minus1: 0,
+            init_qp_minus26: 0,
+            constrained_intra_pred_flag: false,
+            transform_skip_enabled_flag: false,
+        };
+
+        // Build slice header for IDR I slice
+        let mut bits = Vec::new();
+
+        // first_slice_segment_in_pic_flag = 1
+        bits.push(true);
+
+        // no_output_of_prior_pics_flag = 0 (for IDR, nal_type=19)
+        bits.push(false);
+
+        // slice_pic_parameter_set_id = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // slice_type = 2 (I slice, ue(v)): "011"
+        bits.extend_from_slice(&[false, true, true]);
+
+        // slice_qp_delta = 0 (se(v)): "1"
+        bits.push(true);
+
+        // slice_deblocking_filter_disabled_flag = 0
+        bits.push(false);
+
+        // Convert to bytes
+        let mut slice_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                slice_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            slice_data.push(byte);
+        }
+
+        // Parse slice header (NAL type 19 = IDR_W_RADL)
+        let slice = SliceHeader::parse(&slice_data, 19, &sps, &pps)
+            .expect("Should parse I slice header");
+
+        // Verify
+        assert_eq!(slice.first_slice_segment_in_pic_flag, true);
+        assert_eq!(slice.no_output_of_prior_pics_flag, false);
+        assert_eq!(slice.slice_pic_parameter_set_id, 0);
+        assert_eq!(slice.slice_type, SliceType::I);
+        assert_eq!(slice.slice_qp_delta, 0);
+        assert_eq!(slice.get_qp(&pps), 26); // 26 + 0 + 0
+    }
+
+    #[test]
+    fn test_slice_header_parsing_p_slice() {
+        // Create minimal SPS and PPS
+        let sps = Sps {
+            sps_video_parameter_set_id: 0,
+            sps_max_sub_layers_minus1: 0,
+            sps_temporal_id_nesting_flag: false,
+            sps_seq_parameter_set_id: 0,
+            chroma_format_idc: 1,
+            separate_colour_plane_flag: false,
+            pic_width_in_luma_samples: 1920,
+            pic_height_in_luma_samples: 1080,
+            conformance_window_flag: false,
+            conf_win_left_offset: 0,
+            conf_win_right_offset: 0,
+            conf_win_top_offset: 0,
+            conf_win_bottom_offset: 0,
+            bit_depth_luma_minus8: 0,
+            bit_depth_chroma_minus8: 0,
+        };
+
+        let pps = Pps {
+            pps_pic_parameter_set_id: 0,
+            pps_seq_parameter_set_id: 0,
+            dependent_slice_segments_enabled_flag: false,
+            output_flag_present_flag: false,
+            num_extra_slice_header_bits: 0,
+            sign_data_hiding_enabled_flag: false,
+            cabac_init_present_flag: false,
+            num_ref_idx_l0_default_active_minus1: 0,
+            num_ref_idx_l1_default_active_minus1: 0,
+            init_qp_minus26: 5,
+            constrained_intra_pred_flag: false,
+            transform_skip_enabled_flag: false,
+        };
+
+        // Build P slice header
+        let mut bits = Vec::new();
+
+        // first_slice_segment_in_pic_flag = 1
+        bits.push(true);
+
+        // slice_pic_parameter_set_id = 0 (ue(v)): "1"
+        bits.push(true);
+
+        // slice_type = 1 (P slice, ue(v)): "010"
+        bits.extend_from_slice(&[false, true, false]);
+
+        // slice_qp_delta = -3 (se(v) for -3 is ue(6)): "00011010" (needs correction)
+        // se(-3) maps to ue(6): 6 = 0b110, needs 2 leading zeros + 1 + 10 = "00110"
+        bits.extend_from_slice(&[false, false, true, true, false]);
+
+        // slice_deblocking_filter_disabled_flag = 1
+        bits.push(true);
+
+        // Convert to bytes
+        let mut slice_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                slice_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            slice_data.push(byte);
+        }
+
+        // Parse slice header (NAL type 1 = TRAIL_R)
+        let slice = SliceHeader::parse(&slice_data, 1, &sps, &pps)
+            .expect("Should parse P slice header");
+
+        // Verify
+        assert_eq!(slice.slice_type, SliceType::P);
+        assert_eq!(slice.slice_qp_delta, -3);
+        assert_eq!(slice.slice_deblocking_filter_disabled_flag, true);
+        assert_eq!(slice.get_qp(&pps), 28); // 26 + 5 + (-3) = 28
+    }
+
+    #[test]
+    fn test_slice_header_qp_calculation() {
+        let pps = Pps {
+            pps_pic_parameter_set_id: 0,
+            pps_seq_parameter_set_id: 0,
+            dependent_slice_segments_enabled_flag: false,
+            output_flag_present_flag: false,
+            num_extra_slice_header_bits: 0,
+            sign_data_hiding_enabled_flag: false,
+            cabac_init_present_flag: false,
+            num_ref_idx_l0_default_active_minus1: 0,
+            num_ref_idx_l1_default_active_minus1: 0,
+            init_qp_minus26: 10,
+            constrained_intra_pred_flag: false,
+            transform_skip_enabled_flag: false,
+        };
+
+        let slice = SliceHeader {
+            first_slice_segment_in_pic_flag: true,
+            no_output_of_prior_pics_flag: false,
+            slice_pic_parameter_set_id: 0,
+            dependent_slice_segment_flag: false,
+            slice_segment_address: 0,
+            slice_type: SliceType::I,
+            pic_output_flag: true,
+            colour_plane_id: None,
+            slice_qp_delta: -5,
+            slice_deblocking_filter_disabled_flag: false,
+        };
+
+        // QP = 26 + init_qp_minus26 + slice_qp_delta
+        // QP = 26 + 10 + (-5) = 31
+        assert_eq!(slice.get_qp(&pps), 31);
+    }
+
+    #[test]
+    fn test_slice_header_with_output_flag() {
+        let sps = Sps {
+            sps_video_parameter_set_id: 0,
+            sps_max_sub_layers_minus1: 0,
+            sps_temporal_id_nesting_flag: false,
+            sps_seq_parameter_set_id: 0,
+            chroma_format_idc: 1,
+            separate_colour_plane_flag: false,
+            pic_width_in_luma_samples: 1920,
+            pic_height_in_luma_samples: 1080,
+            conformance_window_flag: false,
+            conf_win_left_offset: 0,
+            conf_win_right_offset: 0,
+            conf_win_top_offset: 0,
+            conf_win_bottom_offset: 0,
+            bit_depth_luma_minus8: 0,
+            bit_depth_chroma_minus8: 0,
+        };
+
+        // PPS with output_flag_present_flag enabled
+        let pps = Pps {
+            pps_pic_parameter_set_id: 0,
+            pps_seq_parameter_set_id: 0,
+            dependent_slice_segments_enabled_flag: false,
+            output_flag_present_flag: true, // Enabled!
+            num_extra_slice_header_bits: 0,
+            sign_data_hiding_enabled_flag: false,
+            cabac_init_present_flag: false,
+            num_ref_idx_l0_default_active_minus1: 0,
+            num_ref_idx_l1_default_active_minus1: 0,
+            init_qp_minus26: 0,
+            constrained_intra_pred_flag: false,
+            transform_skip_enabled_flag: false,
+        };
+
+        // Build slice header
+        let mut bits = Vec::new();
+
+        bits.push(true); // first_slice
+        bits.push(true); // slice_pps_id = 0
+        bits.extend_from_slice(&[false, true, true]); // slice_type = 2 (I)
+        bits.push(false); // pic_output_flag = 0 (don't output)
+        bits.push(true); // slice_qp_delta = 0
+        bits.push(false); // deblocking_disabled = 0
+
+        // Convert to bytes
+        let mut slice_data = Vec::new();
+        let mut byte = 0u8;
+        let mut bit_count = 0;
+        for bit in bits {
+            byte = (byte << 1) | (if bit { 1 } else { 0 });
+            bit_count += 1;
+            if bit_count == 8 {
+                slice_data.push(byte);
+                byte = 0;
+                bit_count = 0;
+            }
+        }
+        if bit_count > 0 {
+            byte <<= 8 - bit_count;
+            slice_data.push(byte);
+        }
+
+        // Parse slice header (NAL type 19 = IDR_W_RADL)
+        let slice = SliceHeader::parse(&slice_data, 19, &sps, &pps)
+            .expect("Should parse slice with output flag");
+
+        // Verify output flag was parsed
+        assert_eq!(slice.pic_output_flag, false);
     }
 }
