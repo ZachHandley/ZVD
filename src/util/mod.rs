@@ -19,6 +19,7 @@ pub mod stabilization;
 pub mod burnin;
 pub mod sync;
 pub mod telecine;
+pub mod detection;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -55,6 +56,10 @@ pub use burnin::{
 pub use sync::{AudioSpike, DriftCorrector, SyncDetector, SyncMethod, SyncResult};
 pub use telecine::{
     CadenceDetector, FieldOrder, InterlacedFrame, PulldownPattern, Telecine,
+};
+pub use detection::{
+    BlackFrameDetector, FadeDetector, FadeRegion, FreezeFrameDetector, FreezeRegion,
+    SilenceDetector, SilentRegion,
 };
 
 /// Common media types
