@@ -8,7 +8,10 @@ pub mod video;
 pub use audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
 pub use chain::FilterChain;
 pub use graph::{FilterGraph, FilterNode};
-pub use video::{CropFilter, RotateFilter, ScaleFilter};
+pub use video::{
+    BlurFilter, BrightnessContrastFilter, ChromaKeyFilter, CropFilter, DeinterlaceFilter,
+    DeinterlaceMethod, FlipFilter, RotateFilter, ScaleFilter, SharpenFilter,
+};
 
 use crate::error::Result;
 use crate::codec::Frame;
