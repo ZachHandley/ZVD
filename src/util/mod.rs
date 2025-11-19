@@ -28,7 +28,10 @@ pub mod aspect;
 pub use rational::Rational;
 pub use timestamp::Timestamp;
 pub use timecode::{FrameRate, Timecode};
-pub use colorspace::{ColorConverter, ColorRange, ColorStandard, Hsv, Rgb, Yuv};
+pub use colorspace::{
+    ColorConverter, ColorRange, ColorStandard, GamutConverter, GamutMapping, Hsv, Rgb, RgbFloat,
+    TransferFunction, TransferFunctionConverter, Xyz, Yuv,
+};
 pub use buffer::{Buffer, BufferRef};
 pub use pixfmt::PixelFormat;
 pub use samplefmt::SampleFormat;
