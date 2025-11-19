@@ -6,6 +6,7 @@
 pub mod avi;
 pub mod demuxer;
 pub mod flv;
+pub mod hdr;
 pub mod metadata;
 pub mod mpegts;
 pub mod muxer;
@@ -20,6 +21,10 @@ pub mod y4m;
 pub mod mp4;
 
 pub use demuxer::{Demuxer, DemuxerContext};
+pub use hdr::{
+    Chromaticity, ColorPrimaries, ContentLightLevel, DolbyVisionMetadata, Hdr10PlusFrame,
+    Hdr10PlusMetadata, HdrMetadata, MasteringDisplayMetadata, ToneMapper, TransferFunction,
+};
 pub use metadata::{
     Chapter, ContainerMetadata, ContainerTags, CuePoint, CuePointType, MetadataBuilder,
 };
