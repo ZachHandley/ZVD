@@ -13,6 +13,7 @@ pub mod lut;
 pub mod scopes;
 pub mod proxy;
 pub mod interpolation;
+pub mod tenbit;
 
 pub use rational::Rational;
 pub use timestamp::Timestamp;
@@ -34,6 +35,7 @@ pub use interpolation::{
     FrameData as InterpolationFrameData, FrameFormat, FrameInterpolator, FrameRateConverter,
     InterpolationMethod, MotionVector, SlowMotionGenerator,
 };
+pub use tenbit::{DitherMethod, TenBitAnalyzer, TenBitConverter, TenBitFormat, TenBitFrame};
 
 /// Common media types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
