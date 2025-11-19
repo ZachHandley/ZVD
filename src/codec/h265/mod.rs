@@ -46,10 +46,14 @@
 //! - [x] Coefficient scanning - diagonal/horizontal/vertical patterns (430 lines, 20 unit tests)
 //! - **Phase 8.3 Total: ~1,790 lines, 86 tests!**
 //!
-//! **Phase 8.4: Inter Prediction** (Future)
-//! - [ ] Motion vector prediction
-//! - [ ] Fractional-pel interpolation
-//! - [ ] P-frames and B-frames
+//! **Phase 8.4: Inter Prediction** (IN PROGRESS - 30%)
+//! - [x] Motion vector structures (500 lines, 28 unit tests)
+//! - [x] Motion compensation with fractional-pel interpolation (850 lines, 28 unit tests)
+//! - [ ] AMVP (Advanced Motion Vector Prediction)
+//! - [ ] Merge mode
+//! - [ ] Reference picture management
+//! - [ ] Weighted prediction
+//! - **Phase 8.4 Current: ~1,350 lines, 56 tests!**
 //!
 //! **Phase 8.5: Encoder** (Future)
 //! - [ ] Intra mode decision
@@ -130,6 +134,8 @@ pub mod cabac;
 pub mod quant;
 pub mod filter;
 pub mod scan;
+pub mod mv;
+pub mod mc;
 
 pub use decoder::H265Decoder;
 pub use headers::{Vps, Sps, Pps, SliceHeader, SliceType};
@@ -141,6 +147,9 @@ pub use cabac::{CabacDecoder, ContextModel};
 pub use quant::Quantizer;
 pub use filter::{DeblockingFilter, BoundaryStrength, SaoFilter, SaoParams, SaoType, SaoEdgeClass};
 pub use scan::{CoefficientScanner, CoefficientGroupScanner, SignificanceMap, CoefficientLevels, ScanPattern};
+pub use mv::{MotionVector, MvCandidate, MvPredictor, MergeCandidate, MergeCandidateList,
+             PredictionList, PredictionFlag, SpatialNeighbor, MotionVectorField};
+pub use mc::MotionCompensator;
 
 #[cfg(test)]
 mod tests {
