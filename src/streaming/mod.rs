@@ -17,6 +17,9 @@ pub mod srt;
 pub mod segmenter;
 pub mod pipeline;
 
+// Re-export RTMP client for convenience
+pub use rtmp::RtmpClient;
+
 use crate::error::Result;
 use crate::format::Packet;
 use std::time::Duration;
