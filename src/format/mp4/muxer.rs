@@ -1,7 +1,22 @@
 //! MP4 muxer implementation
 //!
-//! This module provides MP4 container writing using the mp4 crate.
-//! Note: H.264 codec is patent-encumbered. See CODEC_LICENSES.md for details.
+//! This module provides MP4/MOV container writing using the mp4 crate.
+//!
+//! ## Supported Codecs
+//!
+//! **Video:**
+//! - H.264/AVC (patent-encumbered - see CODEC_LICENSES.md)
+//! - H.265/HEVC (patent-encumbered - see CODEC_LICENSES.md)
+//! - VP9 (royalty-free)
+//!
+//! **Audio:**
+//! - AAC (patent-encumbered - see CODEC_LICENSES.md)
+//!
+//! ## Notes
+//!
+//! - ProRes and DNxHD are typically used in MOV containers
+//! - For Opus audio, use WebM/MKV containers instead
+//! - Patent-encumbered codecs require licensing for commercial use
 
 #[cfg(feature = "mp4-support")]
 use crate::error::{Error, Result};
@@ -11,8 +26,8 @@ use crate::format::{Muxer, MuxerContext, Packet, Stream, StreamInfo};
 use crate::util::MediaType;
 #[cfg(feature = "mp4-support")]
 use mp4::{
-    AacConfig, AudioObjectType, AvcConfig, ChannelConfig, MediaConfig, Mp4Config, Mp4Sample,
-    Mp4Writer, SampleFreqIndex, TrackConfig, TrackType,
+    AacConfig, AudioObjectType, AvcConfig, ChannelConfig, HevcConfig, MediaConfig, Mp4Config,
+    Mp4Sample, Mp4Writer, SampleFreqIndex, TrackConfig, TrackType, Vp9Config,
 };
 #[cfg(feature = "mp4-support")]
 use std::collections::HashMap;
@@ -90,23 +105,52 @@ impl Mp4Muxer {
                     .as_ref()
                     .ok_or_else(|| Error::format("Video track missing video info"))?;
 
-                // Create AVC config for H.264
-                // Note: For proper H.264 MP4 muxing, SPS/PPS should be extracted from:
-                // 1. The extradata/codec private data if available in stream_info
-                // 2. The first IDR frame's NAL units (parse for NAL type 7=SPS, 8=PPS)
-                // 3. H.264 Annex B format uses 0x00000001 start codes before NAL units
-                let avc_config = AvcConfig {
-                    width: video_info.width as u16,
-                    height: video_info.height as u16,
-                    seq_param_set: vec![], // Extract from stream extradata or first packet NAL units
-                    pic_param_set: vec![],  // Extract from stream extradata or first packet NAL units
+                let codec = stream_info.codec.to_lowercase();
+                let media_conf = match codec.as_str() {
+                    "h264" | "avc1" | "avc" => {
+                        // Create AVC config for H.264
+                        // Note: For proper H.264 MP4 muxing, SPS/PPS should be extracted from:
+                        // 1. The extradata/codec private data if available in stream_info
+                        // 2. The first IDR frame's NAL units (parse for NAL type 7=SPS, 8=PPS)
+                        // 3. H.264 Annex B format uses 0x00000001 start codes before NAL units
+                        let avc_config = AvcConfig {
+                            width: video_info.width as u16,
+                            height: video_info.height as u16,
+                            seq_param_set: vec![], // Extract from stream extradata or first packet NAL units
+                            pic_param_set: vec![],  // Extract from stream extradata or first packet NAL units
+                        };
+                        MediaConfig::AvcConfig(avc_config)
+                    }
+                    "h265" | "hevc" | "hev1" | "hvc1" => {
+                        // Create HEVC config for H.265
+                        // Note: For proper H.265 MP4 muxing, VPS/SPS/PPS should be extracted from extradata
+                        let hevc_config = HevcConfig {
+                            width: video_info.width as u16,
+                            height: video_info.height as u16,
+                        };
+                        MediaConfig::HevcConfig(hevc_config)
+                    }
+                    "vp9" | "vp09" => {
+                        // Create VP9 config
+                        let vp9_config = Vp9Config {
+                            width: video_info.width as u16,
+                            height: video_info.height as u16,
+                        };
+                        MediaConfig::Vp9Config(vp9_config)
+                    }
+                    _ => {
+                        return Err(Error::format(format!(
+                            "Unsupported video codec for MP4: {}. Supported: H.264, H.265/HEVC, VP9",
+                            codec
+                        )))
+                    }
                 };
 
                 Ok(TrackConfig {
                     track_type: TrackType::Video,
                     timescale,
                     language: "und".to_string(),
-                    media_conf: MediaConfig::AvcConfig(avc_config),
+                    media_conf,
                 })
             }
             MediaType::Audio => {

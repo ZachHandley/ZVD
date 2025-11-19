@@ -72,9 +72,19 @@ pub fn create_muxer(format: &str) -> Result<Box<dyn Muxer>> {
     use super::wav::WavMuxer;
     use super::y4m::Y4mMuxer;
 
+    #[cfg(feature = "mp4-support")]
+    use super::mp4::Mp4Muxer;
+
+    #[cfg(feature = "webm-support")]
+    use super::webm::WebmMuxer;
+
     match format {
         "wav" => Ok(Box::new(WavMuxer::new())),
         "y4m" => Ok(Box::new(Y4mMuxer::new())),
+        #[cfg(feature = "mp4-support")]
+        "mp4" | "mov" => Ok(Box::new(Mp4Muxer::new())),
+        #[cfg(feature = "webm-support")]
+        "webm" | "mkv" => Ok(Box::new(WebmMuxer::new())),
         _ => Err(Error::unsupported(format!(
             "No muxer available for format: {}",
             format

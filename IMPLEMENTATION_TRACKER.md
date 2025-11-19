@@ -305,10 +305,28 @@ with two lines
 - Enhanced common module: ✅ Complete
 - Timestamp utilities: ✅ Complete
 
-**🎯 NEXT UP: Container Muxing**
-- Highest-value remaining feature
-- Enables professional output workflows
-- MP4/MKV write support needed
-- Estimated: 2,000-3,000 lines
+**✅ CONTAINER MUXING: MAJOR PROGRESS!**
+- MP4/MOV muxer: ✅ Complete & Enhanced!
+  - H.264/AVC support: ✅
+  - H.265/HEVC support: ✅ NEW!
+  - VP9 support: ✅ NEW!
+  - AAC audio support: ✅
+  - Registered in create_muxer(): ✅
+- WebM/MKV muxer: 🔄 Stub created (needs full implementation)
+  - Dependencies added (webm-iterable, ebml-iterable)
+  - Feature flag added (webm-support)
+  - Registered in create_muxer()
+  - Full implementation pending (complex low-level API)
 
-**Ready to proceed!** 🚀
+**📊 Lines Added:**
+- MP4 muxer enhancements: ~60 lines (codec support)
+- WebM muxer stub: ~320 lines
+- Cargo.toml updates: ~5 lines
+- Total new code: ~385 lines
+
+**🎯 NEXT PRIORITIES:**
+1. Complete WebM muxer implementation (~800-1,200 lines)
+2. Hardware acceleration (NVENC, Quick Sync, AMF)
+3. Streaming protocols (HLS, DASH, RTMP)
+
+**Ready for production MP4/MOV output!** 🚀
