@@ -31,7 +31,9 @@ fn create_test_frame(
 
     // Y plane (full resolution)
     let y_size = (width * height) as usize;
-    frame.data.push(Buffer::from_vec(vec![fill_pattern; y_size]));
+    frame
+        .data
+        .push(Buffer::from_vec(vec![fill_pattern; y_size]));
     frame.linesize.push(width as usize);
 
     // U plane (half width, half height)
@@ -224,10 +226,7 @@ fn test_vp8_decoder_creation() {
 #[test]
 fn test_vp8_decoder_with_threads() {
     let decoder = Vp8Decoder::with_threads(4);
-    assert!(
-        decoder.is_ok(),
-        "Failed to create VP8 decoder with threads"
-    );
+    assert!(decoder.is_ok(), "Failed to create VP8 decoder with threads");
 }
 
 #[test]
@@ -283,9 +282,7 @@ fn test_vp8_roundtrip_multiple_frames() {
     let mut frames = Vec::new();
     for i in 0..frame_count {
         let pattern = (i * 25) as u8;
-        frames.push(Frame::Video(create_test_frame(
-            width, height, i, pattern,
-        )));
+        frames.push(Frame::Video(create_test_frame(width, height, i, pattern)));
     }
 
     // Encode
@@ -397,10 +394,7 @@ fn test_vp8_keyframe_intervals() {
     );
 
     // First packet should always be a keyframe
-    assert!(
-        packets[0].is_keyframe,
-        "First packet must be a keyframe"
-    );
+    assert!(packets[0].is_keyframe, "First packet must be a keyframe");
 }
 
 #[test]
@@ -423,14 +417,12 @@ fn test_vp8_different_qualities() {
             quality: *quality,
         };
 
-        let packets = encode_frames(config, frames).expect(&format!("Encoding with quality {} failed", quality));
-        assert!(
-            !packets.is_empty(),
-            "No packets with quality {}",
-            quality
-        );
+        let packets = encode_frames(config, frames)
+            .expect(&format!("Encoding with quality {} failed", quality));
+        assert!(!packets.is_empty(), "No packets with quality {}", quality);
 
-        let decoded_frames = decode_packets(packets).expect(&format!("Decoding quality {} failed", quality));
+        let decoded_frames =
+            decode_packets(packets).expect(&format!("Decoding quality {} failed", quality));
         assert_eq!(
             decoded_frames.len(),
             1,

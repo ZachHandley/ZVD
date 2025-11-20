@@ -3,9 +3,9 @@
 //! These tests verify complete transcoding workflows combining
 //! encoders, decoders, filters, and containers.
 
-use zvd_lib::codec::{create_encoder, create_decoder, Encoder, Decoder, Frame, VideoFrame};
+use zvd_lib::codec::{create_decoder, create_encoder, Decoder, Encoder, Frame, VideoFrame};
 use zvd_lib::filter::chain::VideoFilterChain;
-use zvd_lib::filter::video::{ScaleFilter, BrightnessContrastFilter};
+use zvd_lib::filter::video::{BrightnessContrastFilter, ScaleFilter};
 use zvd_lib::filter::FilterChain;
 use zvd_lib::util::{Buffer, PixelFormat, Timestamp};
 
@@ -35,9 +35,7 @@ fn test_av1_transcode_workflow() {
 
     // Decode packet
     let mut decoder = create_decoder("av1").expect("Failed to create decoder");
-    decoder
-        .send_packet(&packet)
-        .expect("Failed to send packet");
+    decoder.send_packet(&packet).expect("Failed to send packet");
 
     let decoded_frame = decoder.receive_frame().expect("Failed to receive frame");
 
@@ -56,8 +54,8 @@ fn test_av1_transcode_workflow() {
 #[cfg(feature = "h264")]
 fn test_h264_to_av1_transcode() {
     // Encode with H.264
-    let mut h264_encoder = create_encoder("h264", 640, 480)
-        .expect("Failed to create H.264 encoder");
+    let mut h264_encoder =
+        create_encoder("h264", 640, 480).expect("Failed to create H.264 encoder");
 
     let mut frame = VideoFrame::new(640, 480, PixelFormat::YUV420P);
     frame.data.push(Buffer::from_vec(vec![100u8; 640 * 480]));
@@ -79,8 +77,7 @@ fn test_h264_to_av1_transcode() {
         .expect("Failed to receive H.264 packet");
 
     // Decode H.264
-    let mut h264_decoder = create_decoder("h264")
-        .expect("Failed to create H.264 decoder");
+    let mut h264_decoder = create_decoder("h264").expect("Failed to create H.264 decoder");
     h264_decoder
         .send_packet(&h264_packet)
         .expect("Failed to send H.264 packet");
@@ -90,8 +87,7 @@ fn test_h264_to_av1_transcode() {
         .expect("Failed to receive H.264 frame");
 
     // Re-encode with AV1
-    let mut av1_encoder = create_encoder("av1", 640, 480)
-        .expect("Failed to create AV1 encoder");
+    let mut av1_encoder = create_encoder("av1", 640, 480).expect("Failed to create AV1 encoder");
     av1_encoder
         .send_frame(&decoded_frame)
         .expect("Failed to encode AV1");
@@ -109,8 +105,7 @@ fn test_h264_to_av1_transcode() {
 #[test]
 fn test_transcode_with_scale() {
     // Encode 1920x1080 frame
-    let mut encoder = create_encoder("av1", 1920, 1080)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 1920, 1080).expect("Failed to create encoder");
 
     let mut frame = VideoFrame::new(1920, 1080, PixelFormat::YUV420P);
     frame.data.push(Buffer::from_vec(vec![100u8; 1920 * 1080]));
@@ -131,21 +126,16 @@ fn test_transcode_with_scale() {
 
     // Decode
     let mut decoder = create_decoder("av1").expect("Failed to create decoder");
-    decoder
-        .send_packet(&packet)
-        .expect("Failed to send packet");
+    decoder.send_packet(&packet).expect("Failed to send packet");
 
     let decoded_frame = decoder.receive_frame().expect("Failed to receive frame");
 
     // Apply scale filter to 1280x720
     let mut filter = ScaleFilter::new(1280, 720);
-    let scaled_frame = filter
-        .process(&decoded_frame)
-        .expect("Failed to scale");
+    let scaled_frame = filter.process(&decoded_frame).expect("Failed to scale");
 
     // Re-encode at new resolution
-    let mut encoder_720p = create_encoder("av1", 1280, 720)
-        .expect("Failed to create 720p encoder");
+    let mut encoder_720p = create_encoder("av1", 1280, 720).expect("Failed to create 720p encoder");
     encoder_720p
         .send_frame(&scaled_frame)
         .expect("Failed to encode scaled frame");
@@ -163,8 +153,7 @@ fn test_transcode_with_scale() {
 #[test]
 fn test_transcode_with_filter_chain() {
     // Create encoder
-    let mut encoder = create_encoder("av1", 1920, 1080)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 1920, 1080).expect("Failed to create encoder");
 
     // Encode frame
     let mut frame = VideoFrame::new(1920, 1080, PixelFormat::YUV420P);
@@ -186,9 +175,7 @@ fn test_transcode_with_filter_chain() {
 
     // Decode
     let mut decoder = create_decoder("av1").expect("Failed to create decoder");
-    decoder
-        .send_packet(&packet)
-        .expect("Failed to send packet");
+    decoder.send_packet(&packet).expect("Failed to send packet");
 
     let decoded_frame = decoder.receive_frame().expect("Failed to receive frame");
 
@@ -202,8 +189,8 @@ fn test_transcode_with_filter_chain() {
         .expect("Failed to apply filters");
 
     // Re-encode
-    let mut encoder_filtered = create_encoder("av1", 1280, 720)
-        .expect("Failed to create filtered encoder");
+    let mut encoder_filtered =
+        create_encoder("av1", 1280, 720).expect("Failed to create filtered encoder");
     encoder_filtered
         .send_frame(&filtered_frame)
         .expect("Failed to encode filtered frame");
@@ -220,8 +207,7 @@ fn test_transcode_with_filter_chain() {
 /// Test multi-frame transcoding workflow
 #[test]
 fn test_multi_frame_transcode() {
-    let mut encoder = create_encoder("av1", 640, 480)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 640, 480).expect("Failed to create encoder");
 
     // Encode 10 frames
     for i in 0..10 {
@@ -258,9 +244,7 @@ fn test_multi_frame_transcode() {
     let mut decoded_frames = Vec::new();
 
     for packet in packets {
-        decoder
-            .send_packet(&packet)
-            .expect("Failed to send packet");
+        decoder.send_packet(&packet).expect("Failed to send packet");
 
         match decoder.receive_frame() {
             Ok(frame) => decoded_frames.push(frame),
@@ -284,8 +268,7 @@ fn test_multi_frame_transcode() {
 /// Test transcoding with timestamp preservation
 #[test]
 fn test_transcode_timestamp_preservation() {
-    let mut encoder = create_encoder("av1", 640, 480)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 640, 480).expect("Failed to create encoder");
 
     // Encode frame with specific timestamp
     let mut frame = VideoFrame::new(640, 480, PixelFormat::YUV420P);
@@ -308,9 +291,7 @@ fn test_transcode_timestamp_preservation() {
 
     // Decode and verify timestamp is preserved
     let mut decoder = create_decoder("av1").expect("Failed to create decoder");
-    decoder
-        .send_packet(&packet)
-        .expect("Failed to send packet");
+    decoder.send_packet(&packet).expect("Failed to send packet");
 
     let decoded_frame = decoder.receive_frame().expect("Failed to receive frame");
 
@@ -325,8 +306,7 @@ fn test_transcode_timestamp_preservation() {
 /// Test keyframe detection in transcoding
 #[test]
 fn test_transcode_keyframe_detection() {
-    let mut encoder = create_encoder("av1", 640, 480)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 640, 480).expect("Failed to create encoder");
 
     // Encode keyframe
     let mut keyframe = VideoFrame::new(640, 480, PixelFormat::YUV420P);
@@ -345,11 +325,17 @@ fn test_transcode_keyframe_detection() {
 
     // Encode non-keyframe
     let mut interframe = VideoFrame::new(640, 480, PixelFormat::YUV420P);
-    interframe.data.push(Buffer::from_vec(vec![105u8; 640 * 480]));
+    interframe
+        .data
+        .push(Buffer::from_vec(vec![105u8; 640 * 480]));
     interframe.linesize.push(640);
-    interframe.data.push(Buffer::from_vec(vec![128u8; 320 * 240]));
+    interframe
+        .data
+        .push(Buffer::from_vec(vec![128u8; 320 * 240]));
     interframe.linesize.push(320);
-    interframe.data.push(Buffer::from_vec(vec![128u8; 320 * 240]));
+    interframe
+        .data
+        .push(Buffer::from_vec(vec![128u8; 320 * 240]));
     interframe.linesize.push(320);
     interframe.pts = Timestamp::new(1);
     interframe.keyframe = false;
@@ -380,8 +366,7 @@ fn test_transcode_keyframe_detection() {
 #[test]
 fn test_transcode_error_cleanup() {
     // Create encoder
-    let mut encoder = create_encoder("av1", 640, 480)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 640, 480).expect("Failed to create encoder");
 
     // Send frame with wrong dimensions (should fail)
     let mut frame = VideoFrame::new(1920, 1080, PixelFormat::YUV420P);
@@ -409,8 +394,8 @@ fn test_concurrent_transcode() {
     let handles: Vec<_> = (0..4)
         .map(|i| {
             thread::spawn(move || {
-                let mut encoder = create_encoder("av1", 320, 240)
-                    .expect("Failed to create encoder");
+                let mut encoder =
+                    create_encoder("av1", 320, 240).expect("Failed to create encoder");
 
                 let mut frame = VideoFrame::new(320, 240, PixelFormat::YUV420P);
                 frame.data.push(Buffer::from_vec(vec![100u8; 320 * 240]));
@@ -426,9 +411,7 @@ fn test_concurrent_transcode() {
                     .expect("Failed to encode");
                 encoder.flush().expect("Failed to flush");
 
-                encoder
-                    .receive_packet()
-                    .expect("Failed to receive packet");
+                encoder.receive_packet().expect("Failed to receive packet");
             })
         })
         .collect();
@@ -441,8 +424,7 @@ fn test_concurrent_transcode() {
 /// Test memory efficiency with large frame count
 #[test]
 fn test_transcode_memory_efficiency() {
-    let mut encoder = create_encoder("av1", 320, 240)
-        .expect("Failed to create encoder");
+    let mut encoder = create_encoder("av1", 320, 240).expect("Failed to create encoder");
 
     // Encode and immediately receive packets to avoid buffering
     for i in 0..100 {

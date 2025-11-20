@@ -110,16 +110,17 @@ impl ProResDecoder {
 
         let profile = self.profile.unwrap_or(ProResProfile::Standard);
 
-        // Determine pixel format
-        let pixel_format = if header.alpha_info != 0 {
-            PixelFormat::YUV444P
-        } else if header.chroma_format == 3 {
+        // Determine pixel format and chroma subsampling
+        let is_444 = header.chroma_format == 3 || header.alpha_info != 0;
+        let pixel_format = if is_444 {
             PixelFormat::YUV444P
         } else {
             PixelFormat::YUV422P
         };
 
-        // Parse slices
+        let chroma_width = if is_444 { width } else { width / 2 };
+
+        // Parse all slices from bitstream
         let mut reader = ProResBitstreamReader::new(data);
         let mut slices = Vec::new();
 
@@ -137,37 +138,88 @@ impl ProResDecoder {
             return Ok(frame);
         }
 
-        // Decode Y plane
+        let qp = slices.first().map(|s| s.header.qp).unwrap_or(16);
+
+        // Allocate planes
         let mut y_plane = vec![0i16; width * height];
-        let qp = if let Some(first_slice) = slices.first() {
-            first_slice.header.qp
-        } else {
-            16
-        };
+        let mut u_plane = vec![0i16; chroma_width * height];
+        let mut v_plane = vec![0i16; chroma_width * height];
 
-        let decoder = SliceDecoder::new(profile, width, height, qp);
+        // Decode slices - they come in groups of 3 (Y, U, V) per slice row
+        let slice_height = 16;
+        let num_slice_rows = (height + slice_height - 1) / slice_height;
 
-        for slice in &slices {
-            decoder.decode_slice(slice, &mut y_plane)?;
+        for slice_row in 0..num_slice_rows {
+            let base_idx = slice_row * 3;
+
+            // Decode Y slice
+            if base_idx < slices.len() {
+                let y_decoder = SliceDecoder::new(profile, width, height, qp);
+                y_decoder.decode_slice(&slices[base_idx], &mut y_plane)?;
+            }
+
+            // Decode U slice
+            if base_idx + 1 < slices.len() {
+                let u_decoder = SliceDecoder::new(profile, chroma_width, height, qp);
+                u_decoder.decode_slice(&slices[base_idx + 1], &mut u_plane)?;
+            }
+
+            // Decode V slice
+            if base_idx + 2 < slices.len() {
+                let v_decoder = SliceDecoder::new(profile, chroma_width, height, qp);
+                v_decoder.decode_slice(&slices[base_idx + 2], &mut v_plane)?;
+            }
         }
 
         // Convert to VideoFrame
         let mut frame = VideoFrame::new(self.width, self.height, pixel_format);
 
         // Copy Y plane (convert i16 to u8)
-        for i in 0..y_plane.len() {
+        for i in 0..y_plane.len().min(frame.y_plane.len()) {
             let y_val = (y_plane[i] + 128).clamp(0, 255) as u8;
-            if i < frame.y_plane.len() {
-                frame.y_plane[i] = y_val;
-            }
+            frame.y_plane[i] = y_val;
         }
 
-        // Fill U and V planes with neutral gray
-        frame.u_plane.fill(128);
-        frame.v_plane.fill(128);
+        // Upsample and copy U plane
+        self.upsample_chroma(&u_plane, &mut frame.u_plane, width, height, is_444)?;
+
+        // Upsample and copy V plane
+        self.upsample_chroma(&v_plane, &mut frame.v_plane, width, height, is_444)?;
 
         frame.pts = Timestamp::new(0);
         Ok(frame)
+    }
+
+    /// Upsample chroma plane to output frame
+    fn upsample_chroma(
+        &self,
+        input: &[i16],
+        output: &mut [u8],
+        width: usize,
+        height: usize,
+        is_444: bool,
+    ) -> Result<()> {
+        if is_444 {
+            // 4:4:4 - no upsampling needed, same resolution as Y
+            for i in 0..input.len().min(output.len()) {
+                output[i] = (input[i] + 128).clamp(0, 255) as u8;
+            }
+        } else {
+            // 4:2:2 - horizontal upsampling (double width)
+            let chroma_width = width / 2;
+            for y in 0..height {
+                for x in 0..width {
+                    let x_src = x / 2;
+                    let idx_src = y * chroma_width + x_src;
+                    let idx_dst = y * width + x;
+
+                    if idx_src < input.len() && idx_dst < output.len() {
+                        output[idx_dst] = (input[idx_src] + 128).clamp(0, 255) as u8;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

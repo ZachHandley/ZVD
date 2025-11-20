@@ -101,32 +101,85 @@ impl ProResEncoder {
         let width = self.width as usize;
         let height = self.height as usize;
 
+        // Determine chroma subsampling based on profile
+        let is_444 = self.profile.has_alpha(); // 4444 profiles use 4:4:4
+        let chroma_width = if is_444 { width } else { width / 2 };
+
         // Convert Y plane to i16 (subtract 128 for signed values)
         let mut y_plane = vec![0i16; width * height];
         for i in 0..y_plane.len().min(frame.y_plane.len()) {
             y_plane[i] = frame.y_plane[i] as i16 - 128;
         }
 
-        // Create slice encoder
-        let encoder = SliceEncoder::new(self.profile, width, height, self.qp);
+        // Convert U plane to i16 with subsampling
+        let mut u_plane = vec![0i16; chroma_width * height];
+        self.subsample_chroma(&frame.u_plane, &mut u_plane, width, height, is_444)?;
+
+        // Convert V plane to i16 with subsampling
+        let mut v_plane = vec![0i16; chroma_width * height];
+        self.subsample_chroma(&frame.v_plane, &mut v_plane, width, height, is_444)?;
 
         // Encode slices (16 lines per slice)
         let slice_height = 16;
-        let mut slices = Vec::new();
+        let mut writer = ProResBitstreamWriter::new();
 
         for y in (0..height).step_by(slice_height) {
             let actual_height = slice_height.min(height - y);
-            let slice = encoder.encode_slice(&y_plane, y, actual_height)?;
-            slices.push(slice);
-        }
 
-        // Write slices to bitstream
-        let mut writer = ProResBitstreamWriter::new();
-        for mut slice in slices {
-            slice.encode(&mut writer);
+            // Encode Y plane slice
+            let y_encoder = SliceEncoder::new(self.profile, width, height, self.qp);
+            let mut y_slice = y_encoder.encode_slice(&y_plane, y, actual_height)?;
+            y_slice.encode(&mut writer);
+
+            // Encode U plane slice
+            let u_encoder = SliceEncoder::new(self.profile, chroma_width, height, self.qp);
+            let mut u_slice = u_encoder.encode_slice(&u_plane, y, actual_height)?;
+            u_slice.encode(&mut writer);
+
+            // Encode V plane slice
+            let v_encoder = SliceEncoder::new(self.profile, chroma_width, height, self.qp);
+            let mut v_slice = v_encoder.encode_slice(&v_plane, y, actual_height)?;
+            v_slice.encode(&mut writer);
         }
 
         Ok(writer.finish())
+    }
+
+    /// Subsample chroma plane from input frame
+    fn subsample_chroma(
+        &self,
+        input: &[u8],
+        output: &mut [i16],
+        width: usize,
+        height: usize,
+        is_444: bool,
+    ) -> Result<()> {
+        if is_444 {
+            // 4:4:4 - no subsampling, same resolution as Y
+            for i in 0..output.len().min(input.len()) {
+                output[i] = input[i] as i16 - 128;
+            }
+        } else {
+            // 4:2:2 - horizontal subsampling (half width)
+            let chroma_width = width / 2;
+            for y in 0..height {
+                for x in 0..chroma_width {
+                    // Average two horizontal pixels
+                    let x_src = x * 2;
+                    let idx_src1 = y * width + x_src;
+                    let idx_src2 = idx_src1 + 1;
+                    let idx_dst = y * chroma_width + x;
+
+                    if idx_src2 < input.len() && idx_dst < output.len() {
+                        let avg = (input[idx_src1] as i16 + input[idx_src2] as i16) / 2;
+                        output[idx_dst] = avg - 128;
+                    } else if idx_src1 < input.len() && idx_dst < output.len() {
+                        output[idx_dst] = input[idx_src1] as i16 - 128;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

@@ -91,7 +91,10 @@ fn test_av1_encoding_pipeline() {
         }
     }
 
-    assert!(packet_count > 0, "Should receive at least one encoded packet");
+    assert!(
+        packet_count > 0,
+        "Should receive at least one encoded packet"
+    );
 }
 
 /// Test direct AV1 module API
@@ -153,9 +156,13 @@ fn test_av1_pixel_formats() {
     let mut frame_420 = VideoFrame::new(320, 240, PixelFormat::YUV420P);
     frame_420.data.push(Buffer::from_vec(vec![0u8; 320 * 240]));
     frame_420.linesize.push(320);
-    frame_420.data.push(Buffer::from_vec(vec![128u8; 160 * 120]));
+    frame_420
+        .data
+        .push(Buffer::from_vec(vec![128u8; 160 * 120]));
     frame_420.linesize.push(160);
-    frame_420.data.push(Buffer::from_vec(vec![128u8; 160 * 120]));
+    frame_420
+        .data
+        .push(Buffer::from_vec(vec![128u8; 160 * 120]));
     frame_420.linesize.push(160);
 
     let result = encoder.send_frame(&Frame::Video(frame_420));

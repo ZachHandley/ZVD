@@ -27,11 +27,7 @@ fn test_vorbis_encoder_sample_rates() {
 
     for &rate in &rates {
         let encoder = VorbisEncoder::new(rate, 2);
-        assert!(
-            encoder.is_ok(),
-            "Should support sample rate {} Hz",
-            rate
-        );
+        assert!(encoder.is_ok(), "Should support sample rate {} Hz", rate);
     }
 }
 
@@ -42,11 +38,7 @@ fn test_vorbis_encoder_channels() {
 
     for &ch in &channels {
         let encoder = VorbisEncoder::new(48000, ch);
-        assert!(
-            encoder.is_ok(),
-            "Should support {} channels",
-            ch
-        );
+        assert!(encoder.is_ok(), "Should support {} channels", ch);
     }
 }
 
@@ -89,10 +81,10 @@ fn test_vorbis_encoder_quality_levels() {
 
     // Valid quality levels
     assert!(encoder.set_quality(-1.0).is_ok()); // ~45 kbps
-    assert!(encoder.set_quality(0.0).is_ok());  // ~64 kbps
-    assert!(encoder.set_quality(3.0).is_ok());  // ~112 kbps
-    assert!(encoder.set_quality(5.0).is_ok());  // ~160 kbps
-    assert!(encoder.set_quality(8.0).is_ok());  // ~256 kbps
+    assert!(encoder.set_quality(0.0).is_ok()); // ~64 kbps
+    assert!(encoder.set_quality(3.0).is_ok()); // ~112 kbps
+    assert!(encoder.set_quality(5.0).is_ok()); // ~160 kbps
+    assert!(encoder.set_quality(8.0).is_ok()); // ~256 kbps
     assert!(encoder.set_quality(10.0).is_ok()); // ~500 kbps
 
     // Invalid quality levels
@@ -217,7 +209,9 @@ fn test_vorbis_encoder_multiple_frames() {
         frame.data.push(Buffer::from_vec(samples));
         frame.pts = Timestamp::new(i * 1024);
 
-        encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+        encoder
+            .send_frame(&Frame::Audio(frame))
+            .expect("Failed to encode");
     }
 
     encoder.flush().expect("Failed to flush");
@@ -231,7 +225,10 @@ fn test_vorbis_encoder_multiple_frames() {
         }
     }
 
-    assert!(packet_count >= 3, "Should have at least 3 packets (headers)");
+    assert!(
+        packet_count >= 3,
+        "Should have at least 3 packets (headers)"
+    );
 }
 
 /// Test Vorbis encoder wrong channel count
@@ -279,7 +276,9 @@ fn test_vorbis_encoder_mono() {
     frame.data.push(Buffer::from_vec(samples));
     frame.pts = Timestamp::new(0);
 
-    encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Audio(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
 
     assert!(encoder.receive_packet().is_ok());
@@ -302,7 +301,9 @@ fn test_vorbis_encoder_surround() {
     frame.data.push(Buffer::from_vec(samples));
     frame.pts = Timestamp::new(0);
 
-    encoder.send_frame(&Frame::Audio(frame)).expect("Failed to encode");
+    encoder
+        .send_frame(&Frame::Audio(frame))
+        .expect("Failed to encode");
     encoder.flush().expect("Failed to flush");
 
     assert!(encoder.receive_packet().is_ok());

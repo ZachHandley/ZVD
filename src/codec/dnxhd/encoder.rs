@@ -1,10 +1,16 @@
-//! DNxHD encoder implementation
+//! DNxHD encoder implementation - Pure Rust!
 
 use super::{DnxhdProfile, DnxhdFrameHeader};
+use super::bitstream::DnxhdBitstreamWriter;
+use super::data::CidData;
+use super::dct::DnxhdDct;
+use super::macroblock::{Macroblock, MacroblockProcessor};
+use super::quant::DnxhdQuantizer;
+use super::vlc::DnxhdVlcEncoder;
 use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
-use crate::util::{Buffer, PixelFormat, Timestamp};
+use crate::util::{Buffer, Timestamp};
 
 /// DNxHD video encoder
 pub struct DnxhdEncoder {
@@ -87,30 +93,121 @@ impl DnxhdEncoder {
         data
     }
 
-    /// Encode frame data (placeholder)
-    fn encode_frame_data(&self, _frame: &VideoFrame) -> Result<Vec<u8>> {
-        // Placeholder - actual DNxHD encoding involves:
-        // - Block-based DCT transformation
-        // - Quantization based on profile
-        // - Variable-length coding
-        // - Rate control to match target bitrate
-        //
-        // Would typically use a library like libavcodec
+    /// Encode frame data using our pure Rust implementation!
+    fn encode_frame_data(&self, frame: &VideoFrame) -> Result<Vec<u8>> {
+        let width = self.width as usize;
+        let height = self.height as usize;
 
-        // For now, return minimal valid structure
-        let mut data = Vec::new();
+        // Get CID data for this profile
+        let cid_data = CidData::for_profile(self.profile);
+        let is_444 = cid_data.is_444;
 
-        // Macroblock data placeholder
-        let mb_width = (self.width + 15) / 16;
-        let mb_height = (self.height + 15) / 16;
-        let mb_count = mb_width * mb_height;
+        // Default quantization scale (can be adjusted for rate control)
+        let qscale = 1024u16;
 
-        for _ in 0..mb_count {
-            // Minimal macroblock data
-            data.extend_from_slice(&[0x00; 64]); // Placeholder coefficients
+        // Create macroblock processor
+        let mb_processor = MacroblockProcessor::new(width, height, is_444);
+
+        // Create bitstream writer
+        let mut writer = DnxhdBitstreamWriter::new();
+
+        // Calculate macroblock dimensions
+        let mb_width = (width + 15) / 16;
+        let mb_height = (height + 15) / 16;
+
+        // DC predictors (per component)
+        let mut last_dc_y = 0i32;
+        let mut last_dc_cb = 0i32;
+        let mut last_dc_cr = 0i32;
+
+        // Encode macroblocks
+        for mb_y in 0..mb_height {
+            for mb_x in 0..mb_width {
+                // Extract macroblock from frame
+                let mb = mb_processor.extract_macroblock(
+                    &frame.y_plane,
+                    &frame.u_plane,
+                    &frame.v_plane,
+                    mb_x,
+                    mb_y,
+                )?;
+
+                // Write quantization scale (11 bits)
+                writer.write_bits(qscale as u32, 11);
+
+                // Create quantizer and VLC encoder
+                let quantizer = DnxhdQuantizer::new(cid_data, qscale);
+                let vlc_encoder = DnxhdVlcEncoder::new(cid_data);
+
+                // Encode Y blocks
+                for block_idx in 0..mb.y_blocks.len() {
+                    // DCT
+                    let mut dct_coeffs = [0i16; 64];
+                    DnxhdDct::forward_dct(&mb.y_blocks[block_idx], &mut dct_coeffs)?;
+
+                    // Quantize
+                    let mut quant_coeffs = [0i16; 64];
+                    quantizer.quantize_luma(&dct_coeffs, &mut quant_coeffs)?;
+
+                    // DC prediction
+                    let dc_value = quant_coeffs[0] as i32;
+                    let dc_diff = dc_value - last_dc_y;
+                    last_dc_y = dc_value;
+
+                    // Encode DC
+                    vlc_encoder.encode_dc(&mut writer, dc_diff as i16)?;
+
+                    // Encode AC
+                    vlc_encoder.encode_ac(&mut writer, &quant_coeffs)?;
+                }
+
+                // Encode Cb blocks
+                for block_idx in 0..mb.cb_blocks.len() {
+                    // DCT
+                    let mut dct_coeffs = [0i16; 64];
+                    DnxhdDct::forward_dct(&mb.cb_blocks[block_idx], &mut dct_coeffs)?;
+
+                    // Quantize
+                    let mut quant_coeffs = [0i16; 64];
+                    quantizer.quantize_chroma(&dct_coeffs, &mut quant_coeffs)?;
+
+                    // DC prediction
+                    let dc_value = quant_coeffs[0] as i32;
+                    let dc_diff = dc_value - last_dc_cb;
+                    last_dc_cb = dc_value;
+
+                    // Encode DC
+                    vlc_encoder.encode_dc(&mut writer, dc_diff as i16)?;
+
+                    // Encode AC
+                    vlc_encoder.encode_ac(&mut writer, &quant_coeffs)?;
+                }
+
+                // Encode Cr blocks
+                for block_idx in 0..mb.cr_blocks.len() {
+                    // DCT
+                    let mut dct_coeffs = [0i16; 64];
+                    DnxhdDct::forward_dct(&mb.cr_blocks[block_idx], &mut dct_coeffs)?;
+
+                    // Quantize
+                    let mut quant_coeffs = [0i16; 64];
+                    quantizer.quantize_chroma(&dct_coeffs, &mut quant_coeffs)?;
+
+                    // DC prediction
+                    let dc_value = quant_coeffs[0] as i32;
+                    let dc_diff = dc_value - last_dc_cr;
+                    last_dc_cr = dc_value;
+
+                    // Encode DC
+                    vlc_encoder.encode_dc(&mut writer, dc_diff as i16)?;
+
+                    // Encode AC
+                    vlc_encoder.encode_ac(&mut writer, &quant_coeffs)?;
+                }
+            }
         }
 
-        Ok(data)
+        Ok(writer.finish())
     }
 }
 

@@ -38,14 +38,20 @@
 //! - 📦 **Portability** - Compile anywhere Rust runs
 //! - 🎯 **Maintainability** - Clean, auditable code
 //!
+//! ## Features
+//!
+//! - ✅ **Full YUV Encoding**: Complete Y, U, and V plane encoding and decoding
+//! - ✅ **Chroma Subsampling**: Proper 4:2:2 and 4:4:4 chroma handling
+//! - ✅ **All ProRes Profiles**: Proxy, LT, Standard, HQ, 4444, 4444 XQ
+//! - ✅ **Production Quality**: Real color video, not grayscale!
+//!
 //! ## Future Enhancements
 //!
 //! Optional improvements for production use:
 //! 1. SIMD optimization for DCT/IDCT
 //! 2. Multi-threaded slice encoding/decoding
-//! 3. Chroma plane encoding (currently luma only)
-//! 4. Alpha channel support for 4444 profiles
-//! 5. More extensive VLC tables for better compression
+//! 3. Alpha channel support for 4444 profiles
+//! 4. More extensive VLC tables for better compression
 //!
 //! ## Usage
 //!

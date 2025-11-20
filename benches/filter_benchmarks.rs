@@ -2,12 +2,15 @@
 //!
 //! Benchmarks for video and audio filter processing
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput, BenchmarkId};
-use zvd_lib::codec::{Frame, VideoFrame, AudioFrame};
-use zvd_lib::filter::video::{ScaleFilter, CropFilter, BrightnessContrastFilter, RotateFilter, RotateAngle, FlipFilter, FlipDirection};
-use zvd_lib::filter::audio::{VolumeFilter, ResampleFilter, NormalizeFilter};
-use zvd_lib::filter::chain::{VideoFilterChain, AudioFilterChain};
-use zvd_lib::filter::{VideoFilter, AudioFilter, FilterChain};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use zvd_lib::codec::{AudioFrame, Frame, VideoFrame};
+use zvd_lib::filter::audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
+use zvd_lib::filter::chain::{AudioFilterChain, VideoFilterChain};
+use zvd_lib::filter::video::{
+    BrightnessContrastFilter, CropFilter, FlipDirection, FlipFilter, RotateAngle, RotateFilter,
+    ScaleFilter,
+};
+use zvd_lib::filter::{AudioFilter, FilterChain, VideoFilter};
 use zvd_lib::util::{Buffer, PixelFormat, SampleFormat, Timestamp};
 
 /// Create a test video frame
@@ -15,7 +18,9 @@ fn create_test_video_frame(width: u32, height: u32) -> VideoFrame {
     let mut frame = VideoFrame::new(width, height, PixelFormat::YUV420P);
 
     // Y plane
-    frame.data.push(Buffer::from_vec(vec![100u8; (width * height) as usize]));
+    frame
+        .data
+        .push(Buffer::from_vec(vec![100u8; (width * height) as usize]));
     frame.linesize.push(width as usize);
 
     // U plane
@@ -62,8 +67,10 @@ fn bench_scale_filter(c: &mut Criterion) {
         group.throughput(Throughput::Elements(pixels as u64));
 
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("{}x{}_to_{}x{}",
-                source_width, source_height, target_width, target_height)),
+            BenchmarkId::from_parameter(format!(
+                "{}x{}_to_{}x{}",
+                source_width, source_height, target_width, target_height
+            )),
             &(target_width, target_height),
             |b, &(tw, th)| {
                 let mut filter = ScaleFilter::new(tw, th);
@@ -111,7 +118,11 @@ fn bench_rotate_filter(c: &mut Criterion) {
 
     group.throughput(Throughput::Elements(pixels));
 
-    for angle in &[RotateAngle::Rotate90, RotateAngle::Rotate180, RotateAngle::Rotate270] {
+    for angle in &[
+        RotateAngle::Rotate90,
+        RotateAngle::Rotate180,
+        RotateAngle::Rotate270,
+    ] {
         let angle_name = match angle {
             RotateAngle::Rotate90 => "90deg",
             RotateAngle::Rotate180 => "180deg",

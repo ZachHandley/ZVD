@@ -2,7 +2,7 @@
 //!
 //! These tests verify filter functionality and filter chain operations.
 
-use zvd_lib::codec::{Frame, VideoFrame, AudioFrame};
+use zvd_lib::codec::{AudioFrame, Frame, VideoFrame};
 use zvd_lib::util::{Buffer, PixelFormat, SampleFormat, Timestamp};
 
 /// Test ScaleFilter creation and basic operation
@@ -58,7 +58,7 @@ fn test_crop_filter_validation() {
 /// Test RotateFilter creation
 #[test]
 fn test_rotate_filter_creation() {
-    use zvd_lib::filter::video::{RotateFilter, RotateAngle};
+    use zvd_lib::filter::video::{RotateAngle, RotateFilter};
 
     let filter_90 = RotateFilter::new(RotateAngle::Rotate90);
     let filter_180 = RotateFilter::new(RotateAngle::Rotate180);
@@ -70,7 +70,7 @@ fn test_rotate_filter_creation() {
 /// Test FlipFilter creation
 #[test]
 fn test_flip_filter_creation() {
-    use zvd_lib::filter::video::{FlipFilter, FlipDirection};
+    use zvd_lib::filter::video::{FlipDirection, FlipFilter};
 
     let filter_h = FlipFilter::new(FlipDirection::Horizontal);
     let filter_v = FlipFilter::new(FlipDirection::Vertical);
@@ -163,7 +163,9 @@ fn test_resample_filter_sample_rates() {
     use zvd_lib::filter::audio::ResampleFilter;
 
     // Standard sample rates
-    let rates = [8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000];
+    let rates = [
+        8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000,
+    ];
 
     for &from_rate in &rates {
         for &to_rate in &rates {
@@ -182,7 +184,7 @@ fn test_normalize_filter_creation() {
     let filter = NormalizeFilter::new(-20.0); // -20 dB RMS
     let filter = NormalizeFilter::new(-16.0); // -16 dB RMS
     let filter = NormalizeFilter::new(-12.0); // -12 dB RMS
-    let filter = NormalizeFilter::new(-3.0);  // -3 dB RMS
+    let filter = NormalizeFilter::new(-3.0); // -3 dB RMS
 }
 
 /// Test NormalizeFilter validation
@@ -212,7 +214,7 @@ fn test_video_filter_chain_creation() {
 #[test]
 fn test_video_filter_chain_multiple() {
     use zvd_lib::filter::chain::VideoFilterChain;
-    use zvd_lib::filter::video::{ScaleFilter, BrightnessContrastFilter};
+    use zvd_lib::filter::video::{BrightnessContrastFilter, ScaleFilter};
 
     let mut chain = VideoFilterChain::new();
 
@@ -230,8 +232,8 @@ fn test_video_filter_chain_multiple() {
 fn test_video_filter_chain_complex() {
     use zvd_lib::filter::chain::VideoFilterChain;
     use zvd_lib::filter::video::{
-        ScaleFilter, CropFilter, RotateFilter, RotateAngle,
-        BrightnessContrastFilter, FlipFilter, FlipDirection,
+        BrightnessContrastFilter, CropFilter, FlipDirection, FlipFilter, RotateAngle, RotateFilter,
+        ScaleFilter,
     };
 
     let mut chain = VideoFilterChain::new();
@@ -258,8 +260,8 @@ fn test_audio_filter_chain_creation() {
 /// Test AudioFilterChain with multiple filters
 #[test]
 fn test_audio_filter_chain_multiple() {
+    use zvd_lib::filter::audio::{NormalizeFilter, VolumeFilter};
     use zvd_lib::filter::chain::AudioFilterChain;
-    use zvd_lib::filter::audio::{VolumeFilter, NormalizeFilter};
 
     let mut chain = AudioFilterChain::new();
 
@@ -275,8 +277,8 @@ fn test_audio_filter_chain_multiple() {
 /// Test AudioFilterChain complex pipeline
 #[test]
 fn test_audio_filter_chain_complex() {
+    use zvd_lib::filter::audio::{NormalizeFilter, ResampleFilter, VolumeFilter};
     use zvd_lib::filter::chain::AudioFilterChain;
-    use zvd_lib::filter::audio::{VolumeFilter, ResampleFilter, NormalizeFilter};
 
     let mut chain = AudioFilterChain::new();
 
@@ -353,7 +355,10 @@ fn test_brightness_contrast_filter_process() {
 
     // Process frame
     let result = filter.process(&Frame::Video(frame));
-    assert!(result.is_ok(), "Brightness/contrast filter should process frame");
+    assert!(
+        result.is_ok(),
+        "Brightness/contrast filter should process frame"
+    );
 
     if let Ok(Frame::Video(output)) = result {
         assert_eq!(output.width, 640);
@@ -400,7 +405,7 @@ fn test_volume_filter_process() {
 #[test]
 fn test_video_filter_chain_processing() {
     use zvd_lib::filter::chain::VideoFilterChain;
-    use zvd_lib::filter::video::{ScaleFilter, BrightnessContrastFilter};
+    use zvd_lib::filter::video::{BrightnessContrastFilter, ScaleFilter};
     use zvd_lib::filter::FilterChain;
 
     let mut chain = VideoFilterChain::new();
@@ -432,8 +437,8 @@ fn test_video_filter_chain_processing() {
 /// Test audio filter chain processing
 #[test]
 fn test_audio_filter_chain_processing() {
-    use zvd_lib::filter::chain::AudioFilterChain;
     use zvd_lib::filter::audio::VolumeFilter;
+    use zvd_lib::filter::chain::AudioFilterChain;
     use zvd_lib::filter::FilterChain;
 
     let mut chain = AudioFilterChain::new();

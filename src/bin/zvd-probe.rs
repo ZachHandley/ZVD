@@ -16,8 +16,8 @@
 //! ```
 
 use clap::{Parser, ValueEnum};
-use zvd_lib::probe::MediaProbe;
 use std::process;
+use zvd_lib::probe::MediaProbe;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum OutputFormat {
@@ -72,9 +72,9 @@ fn main() {
     // Filter streams if requested
     let filtered_metadata = if let Some(ref stream_type) = args.stream_type {
         let mut filtered = metadata.clone();
-        filtered.streams.retain(|s| {
-            stream_type.to_lowercase() == format!("{}", s.stream_type).to_lowercase()
-        });
+        filtered
+            .streams
+            .retain(|s| stream_type.to_lowercase() == format!("{}", s.stream_type).to_lowercase());
         filtered
     } else {
         metadata

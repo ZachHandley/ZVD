@@ -3,7 +3,9 @@
 //! These tests verify that ZVD handles malformed data, invalid inputs,
 //! and error conditions gracefully without panicking.
 
-use zvd_lib::codec::{create_encoder, create_decoder, Encoder, Decoder, Frame, VideoFrame, AudioFrame};
+use zvd_lib::codec::{
+    create_decoder, create_encoder, AudioFrame, Decoder, Encoder, Frame, VideoFrame,
+};
 use zvd_lib::format::Packet;
 use zvd_lib::util::{Buffer, PixelFormat, SampleFormat, Timestamp};
 

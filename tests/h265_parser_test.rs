@@ -4,9 +4,9 @@
 
 #[cfg(feature = "h265")]
 mod h265_tests {
-    use zvd_lib::codec::h265::nal::{NalUnit, NalUnitType, find_start_codes};
-    use zvd_lib::codec::h265::headers::Sps;
     use zvd_lib::codec::h265::bitstream::BitstreamReader;
+    use zvd_lib::codec::h265::headers::Sps;
+    use zvd_lib::codec::h265::nal::{find_start_codes, NalUnit, NalUnitType};
 
     /// Test NAL unit header parsing with IDR frame
     #[test]
@@ -56,8 +56,8 @@ mod h265_tests {
         // Data with emulation prevention: 0x00 0x00 0x03 0x01
         // Should become: 0x00 0x00 0x01
         let data = vec![
-            0x42, 0x01,  // NAL header (SPS)
-            0x00, 0x00, 0x03, 0x01,  // 0x000001 with emulation prevention
+            0x42, 0x01, // NAL header (SPS)
+            0x00, 0x00, 0x03, 0x01, // 0x000001 with emulation prevention
             0xFF,
         ];
 
@@ -74,19 +74,18 @@ mod h265_tests {
     #[test]
     fn test_find_start_codes() {
         let data = vec![
-            0x00, 0x00, 0x00, 0x01,  // 4-byte start code at position 0
-            0x42, 0x01,              // NAL header
-            0xFF, 0xFF,
-            0x00, 0x00, 0x01,        // 3-byte start code at position 8
-            0x26, 0x01,              // NAL header
+            0x00, 0x00, 0x00, 0x01, // 4-byte start code at position 0
+            0x42, 0x01, // NAL header
+            0xFF, 0xFF, 0x00, 0x00, 0x01, // 3-byte start code at position 8
+            0x26, 0x01, // NAL header
             0xAA, 0xBB, 0xCC,
         ];
 
         let positions = find_start_codes(&data);
 
         assert_eq!(positions.len(), 2);
-        assert_eq!(positions[0], 0);  // First start code at byte 0
-        assert_eq!(positions[1], 8);  // Second start code at byte 8
+        assert_eq!(positions[0], 0); // First start code at byte 0
+        assert_eq!(positions[1], 8); // Second start code at byte 8
     }
 
     /// Test bitstream reader with Exp-Golomb codes
@@ -96,8 +95,8 @@ mod h265_tests {
         // ue(v) values: 0, 1, 2, 3, 4
         // Bit patterns: 1, 010, 011, 00100, 00101
         let data = vec![
-            0b1_010_011_0,  // 1 (0), 010 (1), 011 (2), 0
-            0b0100_00101,   // 00100 (3), 00101 (4)
+            0b1_010_011_0, // 1 (0), 010 (1), 011 (2), 0
+            0b0100_00101,  // 00100 (3), 00101 (4)
         ];
 
         let mut reader = BitstreamReader::new(&data);
@@ -181,17 +180,25 @@ mod h265_tests {
         // 2^10 = 1024, 1024 - 1 = 1023
         // 1920 - 1023 = 897 = 0x381 = 1110000001 (10 bits)
         // So: 0000000000 1 1110000001 (10 zeros + 1 + 10 bits)
-        for _ in 0..10 { bits.push(false); }
+        for _ in 0..10 {
+            bits.push(false);
+        }
         bits.push(true);
         // 897 = 0b1110000001
-        bits.extend_from_slice(&[true, true, true, false, false, false, false, false, false, true]);
+        bits.extend_from_slice(&[
+            true, true, true, false, false, false, false, false, false, true,
+        ]);
 
         // pic_height = 1080 = 0x438
         // 1080 - 1023 = 57 = 0x39 = 0000111001 (10 bits)
-        for _ in 0..10 { bits.push(false); }
+        for _ in 0..10 {
+            bits.push(false);
+        }
         bits.push(true);
         // 57 = 0b0000111001
-        bits.extend_from_slice(&[false, false, false, false, true, true, true, false, false, true]);
+        bits.extend_from_slice(&[
+            false, false, false, false, true, true, true, false, false, true,
+        ]);
 
         // conformance_window_flag = 0
         bits.push(false);
@@ -269,17 +276,25 @@ mod h265_tests {
         // pic_width = 3840
         // 3840 - 2047 = 1793 = 0x701 = 11100000001 (11 bits)
         // Need 2^11 - 1 = 2047, so 3840 - 2047 = 1793
-        for _ in 0..11 { bits.push(false); }
+        for _ in 0..11 {
+            bits.push(false);
+        }
         bits.push(true);
         // 1793 = 0b11100000001
-        bits.extend_from_slice(&[true, true, true, false, false, false, false, false, false, false, true]);
+        bits.extend_from_slice(&[
+            true, true, true, false, false, false, false, false, false, false, true,
+        ]);
 
         // pic_height = 2160
         // 2160 - 2047 = 113 = 0x71 = 01110001 (needs 11 bits: 00001110001)
-        for _ in 0..11 { bits.push(false); }
+        for _ in 0..11 {
+            bits.push(false);
+        }
         bits.push(true);
         // 113 = 0b00001110001
-        bits.extend_from_slice(&[false, false, false, false, true, true, true, false, false, false, true]);
+        bits.extend_from_slice(&[
+            false, false, false, false, true, true, true, false, false, false, true,
+        ]);
 
         // conformance_window_flag = 0
         bits.push(false);
@@ -343,14 +358,22 @@ mod h265_tests {
 
         // Use simple dimensions: pic_width = 1920, pic_height = 1088 (padded)
         // ue(1920): 10 zeros + 1 + 897 in 10 bits
-        for _ in 0..10 { bits.push(false); }
+        for _ in 0..10 {
+            bits.push(false);
+        }
         bits.push(true);
-        bits.extend_from_slice(&[true, true, true, false, false, false, false, false, false, true]);
+        bits.extend_from_slice(&[
+            true, true, true, false, false, false, false, false, false, true,
+        ]);
 
         // ue(1088): 1088 - 1023 = 65 = 0b0001000001
-        for _ in 0..10 { bits.push(false); }
+        for _ in 0..10 {
+            bits.push(false);
+        }
         bits.push(true);
-        bits.extend_from_slice(&[false, false, false, true, false, false, false, false, false, true]);
+        bits.extend_from_slice(&[
+            false, false, false, true, false, false, false, false, false, true,
+        ]);
 
         // conformance_window_flag = 1
         bits.push(true);
@@ -479,8 +502,8 @@ mod h265_tests {
         // ue(v) values: 0, 1,  2, 3,  4
         // Bit patterns: 1, 010, 011, 00100, 00101
         let data = vec![
-            0b1_010_011_0,  // 1 (0), 010 (1), 011 (-1), 0
-            0b0100_00101,   // 00100 (2), 00101 (-2)
+            0b1_010_011_0, // 1 (0), 010 (1), 011 (-1), 0
+            0b0100_00101,  // 00100 (2), 00101 (-2)
         ];
 
         let mut reader = BitstreamReader::new(&data);
