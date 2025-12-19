@@ -15,9 +15,7 @@ pub struct VideoToolboxDevice {
 impl VideoToolboxDevice {
     /// Create a new VideoToolbox device
     pub fn new() -> Result<Self> {
-        Ok(VideoToolboxDevice {
-            initialized: false,
-        })
+        Ok(VideoToolboxDevice { initialized: false })
     }
 }
 
@@ -40,7 +38,9 @@ impl HwAccelDevice for VideoToolboxDevice {
 
     fn init(&mut self) -> Result<()> {
         if !self.is_available() {
-            return Err(Error::unsupported("VideoToolbox only available on macOS/iOS"));
+            return Err(Error::unsupported(
+                "VideoToolbox only available on macOS/iOS",
+            ));
         }
 
         // Placeholder for VideoToolbox initialization

@@ -10,14 +10,14 @@
 //! - **AMF** - AMD Media Framework
 //! - **DXVA2/D3D11VA** - DirectX Video Acceleration (Windows)
 
-pub mod vaapi;
+pub mod common;
 pub mod nvenc;
 pub mod qsv;
+pub mod vaapi;
 pub mod videotoolbox;
-pub mod common;
 
+use crate::codec::{Frame, VideoFrame};
 use crate::error::Result;
-use crate::codec::{VideoFrame, Frame};
 
 /// Hardware acceleration device types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

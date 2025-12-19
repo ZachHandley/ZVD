@@ -31,10 +31,14 @@ impl H264Decoder {
     /// 2. Extract Y, U, V plane data
     /// 3. Convert to our VideoFrame format
     #[allow(dead_code)]
-    fn yuv_to_video_frame(&self, _yuv: &openh264::formats::YUVBuffer, _pts: Timestamp) -> Result<VideoFrame> {
+    fn yuv_to_video_frame(
+        &self,
+        _yuv: &openh264::formats::YUVBuffer,
+        _pts: Timestamp,
+    ) -> Result<VideoFrame> {
         // Placeholder - would need proper YUVBuffer API access
         Err(Error::unsupported(
-            "YUV to VideoFrame conversion needs proper openh264 API integration"
+            "YUV to VideoFrame conversion needs proper openh264 API integration",
         ))
     }
 }

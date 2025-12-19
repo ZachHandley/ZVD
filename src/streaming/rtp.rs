@@ -3,7 +3,7 @@
 //! RTP is used for delivering audio and video over IP networks.
 //! RTSP is used for controlling streaming media servers.
 
-use super::{StreamSession, StreamProtocol};
+use super::{StreamProtocol, StreamSession};
 use crate::error::{Error, Result};
 use crate::format::Packet;
 

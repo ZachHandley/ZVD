@@ -32,7 +32,7 @@ impl Decoder for Mp3Decoder {
 
     fn receive_frame(&mut self) -> Result<Frame> {
         Err(Error::unsupported(
-            "MP3 decoding should use SymphoniaAdapter for container-level decoding"
+            "MP3 decoding should use SymphoniaAdapter for container-level decoding",
         ))
     }
 

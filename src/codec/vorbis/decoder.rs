@@ -33,7 +33,7 @@ impl Decoder for VorbisDecoder {
 
     fn receive_frame(&mut self) -> Result<Frame> {
         Err(Error::unsupported(
-            "Vorbis decoding should use SymphoniaAdapter for container-level decoding"
+            "Vorbis decoding should use SymphoniaAdapter for container-level decoding",
         ))
     }
 

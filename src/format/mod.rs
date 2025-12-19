@@ -20,7 +20,7 @@ pub mod mp4;
 
 pub use demuxer::{Demuxer, DemuxerContext};
 pub use muxer::{Muxer, MuxerContext};
-pub use packet::Packet;
+pub use packet::{Packet, PacketFlags};
 pub use stream::{AudioInfo, Stream, StreamInfo, VideoInfo};
 
 use crate::error::{Error, Result};

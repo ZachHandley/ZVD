@@ -27,7 +27,8 @@ impl<R: Read + Seek> FlvDemuxer<R> {
     /// Parse FLV header
     fn parse_header(&mut self) -> Result<FlvHeader> {
         let mut signature = [0u8; 3];
-        self.reader.read_exact(&mut signature)
+        self.reader
+            .read_exact(&mut signature)
             .map_err(|e| Error::Io(e))?;
 
         if &signature != b"FLV" {
@@ -35,18 +36,21 @@ impl<R: Read + Seek> FlvDemuxer<R> {
         }
 
         let mut version = [0u8; 1];
-        self.reader.read_exact(&mut version)
+        self.reader
+            .read_exact(&mut version)
             .map_err(|e| Error::Io(e))?;
 
         let mut flags = [0u8; 1];
-        self.reader.read_exact(&mut flags)
+        self.reader
+            .read_exact(&mut flags)
             .map_err(|e| Error::Io(e))?;
 
         let has_video = (flags[0] & 0x01) != 0;
         let has_audio = (flags[0] & 0x04) != 0;
 
         let mut offset_bytes = [0u8; 4];
-        self.reader.read_exact(&mut offset_bytes)
+        self.reader
+            .read_exact(&mut offset_bytes)
             .map_err(|e| Error::Io(e))?;
         let data_offset = u32::from_be_bytes(offset_bytes);
 
@@ -62,7 +66,8 @@ impl<R: Read + Seek> FlvDemuxer<R> {
     /// Read FLV tag header
     fn read_tag_header(&mut self) -> Result<FlvTagHeader> {
         let mut tag_type_byte = [0u8; 1];
-        self.reader.read_exact(&mut tag_type_byte)
+        self.reader
+            .read_exact(&mut tag_type_byte)
             .map_err(|e| Error::Io(e))?;
 
         let tag_type = FlvTagType::from_u8(tag_type_byte[0])
@@ -70,18 +75,20 @@ impl<R: Read + Seek> FlvDemuxer<R> {
 
         // Data size (24 bits)
         let mut size_bytes = [0u8; 3];
-        self.reader.read_exact(&mut size_bytes)
+        self.reader
+            .read_exact(&mut size_bytes)
             .map_err(|e| Error::Io(e))?;
-        let data_size = ((size_bytes[0] as u32) << 16)
-            | ((size_bytes[1] as u32) << 8)
-            | (size_bytes[2] as u32);
+        let data_size =
+            ((size_bytes[0] as u32) << 16) | ((size_bytes[1] as u32) << 8) | (size_bytes[2] as u32);
 
         // Timestamp (24 bits + 8 bit extension)
         let mut ts_bytes = [0u8; 3];
-        self.reader.read_exact(&mut ts_bytes)
+        self.reader
+            .read_exact(&mut ts_bytes)
             .map_err(|e| Error::Io(e))?;
         let mut ts_ext = [0u8; 1];
-        self.reader.read_exact(&mut ts_ext)
+        self.reader
+            .read_exact(&mut ts_ext)
             .map_err(|e| Error::Io(e))?;
 
         let timestamp = ((ts_ext[0] as u32) << 24)
@@ -91,7 +98,8 @@ impl<R: Read + Seek> FlvDemuxer<R> {
 
         // Stream ID (always 0)
         let mut stream_id_bytes = [0u8; 3];
-        self.reader.read_exact(&mut stream_id_bytes)
+        self.reader
+            .read_exact(&mut stream_id_bytes)
             .map_err(|e| Error::Io(e))?;
 
         Ok(FlvTagHeader {
@@ -104,15 +112,19 @@ impl<R: Read + Seek> FlvDemuxer<R> {
 }
 
 impl<R: Read + Seek> Demuxer for FlvDemuxer<R> {
-    fn close(&mut self) -> Result<()> { Ok(()) }
+    fn close(&mut self) -> Result<()> {
+        Ok(())
+    }
     fn open(&mut self, _path: &std::path::Path) -> Result<()> {
         let header = self.parse_header()?;
 
         // Skip to first tag (skip PreviousTagSize0)
-        self.reader.seek(SeekFrom::Start(header.data_offset as u64))
+        self.reader
+            .seek(SeekFrom::Start(header.data_offset as u64))
             .map_err(|e| Error::Io(e))?;
         let mut prev_tag = [0u8; 4];
-        self.reader.read_exact(&mut prev_tag)
+        self.reader
+            .read_exact(&mut prev_tag)
             .map_err(|e| Error::Io(e))?;
 
         self.header = Some(header);
@@ -133,7 +145,6 @@ impl<R: Read + Seek> Demuxer for FlvDemuxer<R> {
     fn streams(&self) -> &[crate::format::Stream] {
         &self.streams
     }
-
 }
 
 #[cfg(test)]

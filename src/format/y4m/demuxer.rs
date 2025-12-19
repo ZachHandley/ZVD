@@ -48,8 +48,8 @@ impl Default for Y4mDemuxer {
 impl Demuxer for Y4mDemuxer {
     fn open(&mut self, path: &Path) -> Result<()> {
         // Open the file
-        let file = File::open(path)
-            .map_err(|e| Error::format(format!("Failed to open file: {}", e)))?;
+        let file =
+            File::open(path).map_err(|e| Error::format(format!("Failed to open file: {}", e)))?;
 
         let reader = BufReader::new(file);
 
@@ -76,7 +76,7 @@ impl Demuxer for Y4mDemuxer {
             pix_fmt: Self::colorspace_to_pixel_format(colorspace),
             frame_rate: Rational::new(framerate.num as i64, framerate.den as i64),
             aspect_ratio: Rational::new(1, 1), // Default to square pixels
-            bits_per_sample: 8, // Y4M typically uses 8-bit samples
+            bits_per_sample: 8,                // Y4M typically uses 8-bit samples
         });
 
         // Add stream to context

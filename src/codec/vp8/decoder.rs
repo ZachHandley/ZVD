@@ -34,7 +34,7 @@ impl Vp8Decoder {
         // 3. Return YUV420 frame
 
         Err(Error::unsupported(
-            "VP8 decoding requires libvpx integration - not yet fully implemented"
+            "VP8 decoding requires libvpx integration - not yet fully implemented",
         ))
     }
 }

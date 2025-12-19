@@ -96,8 +96,7 @@ impl HlsPlaylist {
         let path = self.output_dir.join(filename);
         let content = self.generate_media_playlist(is_live);
 
-        std::fs::write(&path, content)
-            .map_err(|e| Error::Io(e))?;
+        std::fs::write(&path, content).map_err(|e| Error::Io(e))?;
 
         Ok(())
     }

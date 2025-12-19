@@ -1,7 +1,7 @@
 //! WAV file muxer implementation
 
-use super::header::{WavFormat, FormatTag};
-use super::{RIFF_MAGIC, WAVE_MAGIC, FMT_CHUNK, DATA_CHUNK};
+use super::header::{FormatTag, WavFormat};
+use super::{DATA_CHUNK, FMT_CHUNK, RIFF_MAGIC, WAVE_MAGIC};
 use crate::error::{Error, Result};
 use crate::format::{Muxer, MuxerContext, Packet, Stream};
 use crate::util::SampleFormat;
@@ -41,9 +41,8 @@ impl Default for WavMuxer {
 
 impl Muxer for WavMuxer {
     fn create(&mut self, path: &Path) -> Result<()> {
-        let file = File::create(path).map_err(|e| {
-            Error::format(format!("Failed to create WAV file: {}", e))
-        })?;
+        let file = File::create(path)
+            .map_err(|e| Error::format(format!("Failed to create WAV file: {}", e)))?;
 
         self.writer = Some(BufWriter::new(file));
         Ok(())

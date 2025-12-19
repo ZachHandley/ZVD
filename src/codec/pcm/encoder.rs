@@ -72,10 +72,7 @@ impl PcmEncoder {
                     if end <= channel_data.len() {
                         output.extend_from_slice(&channel_data[start..end]);
                     } else {
-                        return Err(Error::codec(format!(
-                            "Channel {} buffer too small",
-                            ch
-                        )));
+                        return Err(Error::codec(format!("Channel {} buffer too small", ch)));
                     }
                 }
             }

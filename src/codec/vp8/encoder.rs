@@ -68,7 +68,7 @@ impl Vp8Encoder {
         // 3. Return compressed bitstream
 
         Err(Error::unsupported(
-            "VP8 encoding requires libvpx integration - not yet fully implemented"
+            "VP8 encoding requires libvpx integration - not yet fully implemented",
         ))
     }
 }

@@ -1,6 +1,6 @@
 //! Packet representation for compressed media data
 
-use crate::util::{Buffer, Timestamp};
+use crate::util::{Buffer, MediaType, Timestamp};
 use std::fmt;
 
 /// Packet flags
@@ -30,6 +30,9 @@ pub struct Packet {
     /// Stream index this packet belongs to
     pub stream_index: usize,
 
+    /// Type of media (video, audio, etc.)
+    pub codec_type: MediaType,
+
     /// Compressed data
     pub data: Buffer,
 
@@ -54,6 +57,35 @@ impl Packet {
     pub fn new(stream_index: usize, data: Buffer) -> Self {
         Packet {
             stream_index,
+            codec_type: MediaType::Unknown,
+            data,
+            pts: Timestamp::none(),
+            dts: Timestamp::none(),
+            duration: 0,
+            flags: PacketFlags::default(),
+            position: -1,
+        }
+    }
+
+    /// Create a new video packet
+    pub fn new_video(stream_index: usize, data: Buffer) -> Self {
+        Packet {
+            stream_index,
+            codec_type: MediaType::Video,
+            data,
+            pts: Timestamp::none(),
+            dts: Timestamp::none(),
+            duration: 0,
+            flags: PacketFlags::default(),
+            position: -1,
+        }
+    }
+
+    /// Create a new audio packet
+    pub fn new_audio(stream_index: usize, data: Buffer) -> Self {
+        Packet {
+            stream_index,
+            codec_type: MediaType::Audio,
             data,
             pts: Timestamp::none(),
             dts: Timestamp::none(),

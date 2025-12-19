@@ -24,9 +24,7 @@ impl Buffer {
 
     /// Create an empty buffer
     pub fn empty() -> Self {
-        Buffer {
-            data: Bytes::new(),
-        }
+        Buffer { data: Bytes::new() }
     }
 
     /// Get the length of the buffer

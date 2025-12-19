@@ -70,9 +70,7 @@ pub fn init(config: Config) -> Result<()> {
     // Initialize logging
     if config.verbose || config.debug {
         let level = if config.debug { "debug" } else { "info" };
-        tracing_subscriber::fmt()
-            .with_env_filter(level)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(level).init();
     }
 
     Ok(())

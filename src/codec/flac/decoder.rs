@@ -32,7 +32,7 @@ impl Decoder for FlacDecoder {
 
     fn receive_frame(&mut self) -> Result<Frame> {
         Err(Error::unsupported(
-            "FLAC decoding should use SymphoniaAdapter for container-level decoding"
+            "FLAC decoding should use SymphoniaAdapter for container-level decoding",
         ))
     }
 

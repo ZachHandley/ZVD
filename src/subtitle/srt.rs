@@ -2,7 +2,7 @@
 //!
 //! SRT is one of the most popular and widely supported subtitle formats.
 
-use super::{Subtitle, SubtitleParser, SubtitleFormat, parse_timestamp};
+use super::{parse_timestamp, Subtitle, SubtitleFormat, SubtitleParser};
 use crate::error::{Error, Result};
 use std::time::Duration;
 
@@ -43,11 +43,13 @@ impl SubtitleParser for SrtParser {
                 None => break,
             };
 
-            let index: u32 = index_line.parse()
+            let index: u32 = index_line
+                .parse()
                 .map_err(|_| Error::invalid_input("Invalid subtitle index"))?;
 
             // Read timestamp line
-            let timestamp_line = lines.next()
+            let timestamp_line = lines
+                .next()
                 .ok_or_else(|| Error::invalid_input("Missing timestamp line"))?;
 
             let timestamps: Vec<&str> = timestamp_line.split(" --> ").collect();
@@ -134,15 +136,13 @@ with multiple lines
 
     #[test]
     fn test_srt_format() {
-        let subtitles = vec![
-            Subtitle {
-                index: Some(1),
-                start_time: Duration::from_secs(1),
-                end_time: Duration::from_secs(4),
-                text: "Hello".to_string(),
-                style: None,
-            },
-        ];
+        let subtitles = vec![Subtitle {
+            index: Some(1),
+            start_time: Duration::from_secs(1),
+            end_time: Duration::from_secs(4),
+            text: "Hello".to_string(),
+            style: None,
+        }];
 
         let parser = SrtParser::new();
         let output = parser.format(&subtitles).unwrap();

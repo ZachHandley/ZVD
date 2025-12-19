@@ -10,11 +10,11 @@
 //! See CODEC_LICENSES.md for details.
 
 #[cfg(feature = "h264")]
-pub mod encoder;
-#[cfg(feature = "h264")]
 pub mod decoder;
+#[cfg(feature = "h264")]
+pub mod encoder;
 
 #[cfg(feature = "h264")]
-pub use encoder::H264Encoder;
-#[cfg(feature = "h264")]
 pub use decoder::H264Decoder;
+#[cfg(feature = "h264")]
+pub use encoder::H264Encoder;

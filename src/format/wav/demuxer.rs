@@ -1,6 +1,6 @@
 //! WAV file demuxer implementation
 
-use super::header::{WavHeader, FormatTag};
+use super::header::{FormatTag, WavHeader};
 use crate::error::{Error, Result};
 use crate::format::{Demuxer, DemuxerContext, Packet, Stream, StreamInfo};
 use crate::util::{Buffer, MediaType, Rational, Timestamp};
@@ -44,9 +44,8 @@ impl Default for WavDemuxer {
 impl Demuxer for WavDemuxer {
     fn open(&mut self, path: &Path) -> Result<()> {
         // Open the file
-        let file = File::open(path).map_err(|e| {
-            Error::format(format!("Failed to open WAV file: {}", e))
-        })?;
+        let file = File::open(path)
+            .map_err(|e| Error::format(format!("Failed to open WAV file: {}", e)))?;
 
         let mut reader = BufReader::new(file);
 

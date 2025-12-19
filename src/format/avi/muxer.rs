@@ -47,9 +47,9 @@ impl<W: Write> AviMuxer<W> {
 
     /// Write RIFF chunk header
     fn write_chunk_header(&mut self, fourcc: &[u8; 4], size: u32) -> Result<()> {
-        self.writer.write_all(fourcc)
-            .map_err(|e| Error::Io(e))?;
-        self.writer.write_all(&size.to_le_bytes())
+        self.writer.write_all(fourcc).map_err(|e| Error::Io(e))?;
+        self.writer
+            .write_all(&size.to_le_bytes())
             .map_err(|e| Error::Io(e))?;
         Ok(())
     }
@@ -58,15 +58,13 @@ impl<W: Write> AviMuxer<W> {
     fn write_headers(&mut self) -> Result<()> {
         // Write RIFF header
         self.write_chunk_header(b"RIFF", 0)?; // Size will be updated at end
-        self.writer.write_all(b"AVI ")
-            .map_err(|e| Error::Io(e))?;
+        self.writer.write_all(b"AVI ").map_err(|e| Error::Io(e))?;
 
         // Placeholder - would write hdrl LIST with avih, strl chunks
 
         // Write movi LIST header
         self.write_chunk_header(b"LIST", 0)?;
-        self.writer.write_all(b"movi")
-            .map_err(|e| Error::Io(e))?;
+        self.writer.write_all(b"movi").map_err(|e| Error::Io(e))?;
 
         Ok(())
     }

@@ -49,12 +49,8 @@ impl OpusEncoder {
 
     /// Create a new Opus encoder with custom configuration
     pub fn with_config(config: OpusEncoderConfig) -> Result<Self> {
-        let encoder = OpusEncoderLib::new(
-            config.sample_rate,
-            config.channels,
-            config.application,
-        )
-        .map_err(|e| Error::codec(format!("Failed to create Opus encoder: {:?}", e)))?;
+        let encoder = OpusEncoderLib::new(config.sample_rate, config.channels, config.application)
+            .map_err(|e| Error::codec(format!("Failed to create Opus encoder: {:?}", e)))?;
 
         // Frame size: 2.5, 5, 10, 20, 40, or 60 ms
         // We'll use 20ms (960 samples at 48kHz)

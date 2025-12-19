@@ -114,10 +114,10 @@ impl Av1Encoder {
 
         // Calculate chroma dimensions based on pixel format
         let (chroma_width_divisor, chroma_height_divisor) = match video_frame.format {
-            PixelFormat::YUV420P => (2, 2),  // 4:2:0 - half width and height
-            PixelFormat::YUV422P => (2, 1),  // 4:2:2 - half width, full height
-            PixelFormat::YUV444P => (1, 1),  // 4:4:4 - full resolution
-            PixelFormat::GRAY8 => (0, 0),    // No chroma planes
+            PixelFormat::YUV420P => (2, 2), // 4:2:0 - half width and height
+            PixelFormat::YUV422P => (2, 1), // 4:2:2 - half width, full height
+            PixelFormat::YUV444P => (1, 1), // 4:4:4 - full resolution
+            PixelFormat::GRAY8 => (0, 0),   // No chroma planes
             _ => unreachable!("Already validated pixel format"),
         };
 
@@ -199,13 +199,11 @@ impl Encoder for Av1Encoder {
                 let rav1e_frame = self.video_frame_to_rav1e(video_frame)?;
 
                 // Send to encoder
-                self.context
-                    .send_frame(rav1e_frame)
-                    .map_err(|e| match e {
-                        EncoderStatus::Failure => Error::codec("Encoder failure"),
-                        EncoderStatus::EnoughData => Error::codec("Encoder has enough data"),
-                        _ => Error::codec(format!("Encoder error: {:?}", e)),
-                    })?;
+                self.context.send_frame(rav1e_frame).map_err(|e| match e {
+                    EncoderStatus::Failure => Error::codec("Encoder failure"),
+                    EncoderStatus::EnoughData => Error::codec("Encoder has enough data"),
+                    _ => Error::codec(format!("Encoder error: {:?}", e)),
+                })?;
 
                 self.frame_count += 1;
                 Ok(())
@@ -328,15 +326,15 @@ impl Av1EncoderBuilder {
         Av1EncoderBuilder {
             width,
             height,
-            speed_preset: 6,           // Balanced default
-            quantizer: 100,            // Medium quality (0-255, lower is better)
-            min_keyframe_interval: 12, // Minimum 12 frames between keyframes
+            speed_preset: 6,            // Balanced default
+            quantizer: 100,             // Medium quality (0-255, lower is better)
+            min_keyframe_interval: 12,  // Minimum 12 frames between keyframes
             max_keyframe_interval: 240, // Maximum 240 frames (8 seconds at 30fps)
-            bitrate: None,             // No bitrate limit by default
-            threads: 0,                // Auto-detect
-            tile_cols: 0,              // Auto-detect
-            tile_rows: 0,              // Auto-detect
-            time_base_num: 1,          // 1/30 = 30fps default
+            bitrate: None,              // No bitrate limit by default
+            threads: 0,                 // Auto-detect
+            tile_cols: 0,               // Auto-detect
+            tile_rows: 0,               // Auto-detect
+            time_base_num: 1,           // 1/30 = 30fps default
             time_base_den: 30,
             low_latency: false,
             rdo_lookahead_frames: 40, // Default lookahead
@@ -567,12 +565,9 @@ impl Av1EncoderBuilder {
         }
 
         // Create the context
-        let context = cfg.new_context().map_err(|e| {
-            Error::codec(format!(
-                "Failed to create AV1 encoder context: {:?}",
-                e
-            ))
-        })?;
+        let context = cfg
+            .new_context()
+            .map_err(|e| Error::codec(format!("Failed to create AV1 encoder context: {:?}", e)))?;
 
         Ok(Av1Encoder {
             context,
@@ -682,7 +677,7 @@ mod tests {
         // Create a simple encoder
         let mut encoder = Av1EncoderBuilder::new(320, 240)
             .speed_preset(10) // Fastest for testing
-            .quantizer(200)   // Low quality for speed
+            .quantizer(200) // Low quality for speed
             .build()
             .unwrap();
 
@@ -698,11 +693,15 @@ mod tests {
 
             // U plane (160x120) - 128 (neutral)
             let uv_size = 160 * 120;
-            video_frame.data.push(Buffer::from_vec(vec![128u8; uv_size]));
+            video_frame
+                .data
+                .push(Buffer::from_vec(vec![128u8; uv_size]));
             video_frame.linesize.push(160);
 
             // V plane (160x120) - 128 (neutral)
-            video_frame.data.push(Buffer::from_vec(vec![128u8; uv_size]));
+            video_frame
+                .data
+                .push(Buffer::from_vec(vec![128u8; uv_size]));
             video_frame.linesize.push(160);
 
             video_frame.pts = Timestamp::new(i as i64);
@@ -760,11 +759,17 @@ mod tests {
 
             // Create frames with increasing brightness
             let brightness = (i * 50) as u8;
-            video_frame.data.push(Buffer::from_vec(vec![brightness; 320 * 240]));
+            video_frame
+                .data
+                .push(Buffer::from_vec(vec![brightness; 320 * 240]));
             video_frame.linesize.push(320);
-            video_frame.data.push(Buffer::from_vec(vec![128u8; 160 * 120]));
+            video_frame
+                .data
+                .push(Buffer::from_vec(vec![128u8; 160 * 120]));
             video_frame.linesize.push(160);
-            video_frame.data.push(Buffer::from_vec(vec![128u8; 160 * 120]));
+            video_frame
+                .data
+                .push(Buffer::from_vec(vec![128u8; 160 * 120]));
             video_frame.linesize.push(160);
             video_frame.pts = Timestamp::new(i as i64);
 
@@ -823,9 +828,13 @@ mod tests {
         let mut frame_420 = VideoFrame::new(320, 240, PixelFormat::YUV420P);
         frame_420.data.push(Buffer::from_vec(vec![0u8; 320 * 240]));
         frame_420.linesize.push(320);
-        frame_420.data.push(Buffer::from_vec(vec![128u8; 160 * 120]));
+        frame_420
+            .data
+            .push(Buffer::from_vec(vec![128u8; 160 * 120]));
         frame_420.linesize.push(160);
-        frame_420.data.push(Buffer::from_vec(vec![128u8; 160 * 120]));
+        frame_420
+            .data
+            .push(Buffer::from_vec(vec![128u8; 160 * 120]));
         frame_420.linesize.push(160);
 
         let result = encoder.send_frame(&Frame::Video(frame_420));
@@ -833,7 +842,9 @@ mod tests {
 
         // Test unsupported format (should fail)
         let mut frame_rgb = VideoFrame::new(320, 240, PixelFormat::RGB24);
-        frame_rgb.data.push(Buffer::from_vec(vec![0u8; 320 * 240 * 3]));
+        frame_rgb
+            .data
+            .push(Buffer::from_vec(vec![0u8; 320 * 240 * 3]));
         frame_rgb.linesize.push(320 * 3);
 
         let result = encoder.send_frame(&Frame::Video(frame_rgb));

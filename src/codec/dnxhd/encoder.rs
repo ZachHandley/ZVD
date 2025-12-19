@@ -1,10 +1,17 @@
 //! DNxHD encoder implementation
 
-use super::{DnxhdProfile, DnxhdFrameHeader};
+use super::{DnxhdFrameHeader, DnxhdProfile};
 use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
 use crate::util::{Buffer, PixelFormat, Timestamp};
+
+/// DNxHD encoder configuration
+#[derive(Debug, Clone, Default)]
+pub struct DnxhdEncoderConfig {
+    /// Quantization scale (1-31 for 8-bit, 1-255 for 10-bit)
+    pub qscale: u8,
+}
 
 /// DNxHD video encoder
 pub struct DnxhdEncoder {
@@ -13,11 +20,23 @@ pub struct DnxhdEncoder {
     height: u32,
     frame_count: u64,
     pending_packet: Option<Packet>,
+    #[allow(dead_code)]
+    config: DnxhdEncoderConfig,
 }
 
 impl DnxhdEncoder {
-    /// Create a new DNxHD encoder
+    /// Create a new DNxHD encoder with default config
     pub fn new(width: u32, height: u32, profile: DnxhdProfile) -> Result<Self> {
+        Self::with_config(width, height, profile, DnxhdEncoderConfig::default())
+    }
+
+    /// Create a new DNxHD encoder with custom config
+    pub fn with_config(
+        width: u32,
+        height: u32,
+        profile: DnxhdProfile,
+        config: DnxhdEncoderConfig,
+    ) -> Result<Self> {
         if width == 0 || height == 0 {
             return Err(Error::invalid_input("Width and height must be non-zero"));
         }
@@ -26,9 +45,18 @@ impl DnxhdEncoder {
         if !profile.is_dnxhr() {
             if width != 1920 || (height != 1080 && height != 1088) {
                 return Err(Error::invalid_input(
-                    "DNxHD requires 1920x1080 or 1920x1088. Use DNxHR for other resolutions."
+                    "DNxHD requires 1920x1080 or 1920x1088. Use DNxHR for other resolutions.",
                 ));
             }
+        }
+
+        // Validate qscale range
+        let max_qscale = if profile.is_10bit() { 255 } else { 31 };
+        if config.qscale > max_qscale {
+            return Err(Error::invalid_input(format!(
+                "qscale {} exceeds maximum {} for this profile",
+                config.qscale, max_qscale
+            )));
         }
 
         Ok(DnxhdEncoder {
@@ -37,6 +65,7 @@ impl DnxhdEncoder {
             height,
             frame_count: 0,
             pending_packet: None,
+            config,
         })
     }
 
@@ -47,11 +76,7 @@ impl DnxhdEncoder {
 
     /// Encode frame header
     fn encode_frame_header(&self) -> Vec<u8> {
-        let header = DnxhdFrameHeader::new(
-            self.width as u16,
-            self.height as u16,
-            self.profile,
-        );
+        let header = DnxhdFrameHeader::new(self.width as u16, self.height as u16, self.profile);
 
         let mut data = Vec::new();
 

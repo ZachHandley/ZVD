@@ -99,7 +99,7 @@ impl Mp4Muxer {
                     width: video_info.width as u16,
                     height: video_info.height as u16,
                     seq_param_set: vec![], // Extract from stream extradata or first packet NAL units
-                    pic_param_set: vec![],  // Extract from stream extradata or first packet NAL units
+                    pic_param_set: vec![], // Extract from stream extradata or first packet NAL units
                 };
 
                 Ok(TrackConfig {
@@ -212,10 +212,12 @@ impl Muxer for Mp4Muxer {
             .as_mut()
             .ok_or_else(|| Error::format("MP4 writer not initialized"))?;
 
-        let track_id = self
-            .track_ids
-            .get(&packet.stream_index)
-            .ok_or_else(|| Error::format(format!("Track not found for stream {}", packet.stream_index)))?;
+        let track_id = self.track_ids.get(&packet.stream_index).ok_or_else(|| {
+            Error::format(format!(
+                "Track not found for stream {}",
+                packet.stream_index
+            ))
+        })?;
 
         // Convert our packet to MP4 sample
         let sample = Mp4Sample {

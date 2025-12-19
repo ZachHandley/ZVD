@@ -3,11 +3,11 @@
 //! ProRes is a high-quality video codec designed for professional video editing.
 //! It offers excellent image quality with manageable file sizes.
 
-pub mod encoder;
 pub mod decoder;
+pub mod encoder;
 
-pub use encoder::ProResEncoder;
 pub use decoder::ProResDecoder;
+pub use encoder::ProResEncoder;
 
 /// ProRes profile variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +53,10 @@ impl ProResProfile {
 
     /// Check if profile supports alpha channel
     pub fn has_alpha(&self) -> bool {
-        matches!(self, ProResProfile::FourFourFourFour | ProResProfile::FourFourFourFourXq)
+        matches!(
+            self,
+            ProResProfile::FourFourFourFour | ProResProfile::FourFourFourFourXq
+        )
     }
 }
 
@@ -88,12 +91,12 @@ impl ProResFrameHeader {
             width,
             height,
             chroma_format: if profile.has_alpha() { 3 } else { 2 }, // 2=422, 3=444
-            interlace_mode: 0, // Progressive
+            interlace_mode: 0,                                      // Progressive
             aspect_ratio: 0,
             framerate_code: 0,
-            color_primaries: 1,    // BT.709
+            color_primaries: 1,          // BT.709
             transfer_characteristics: 1, // BT.709
-            matrix_coefficients: 1, // BT.709
+            matrix_coefficients: 1,      // BT.709
             alpha_info: if profile.has_alpha() { 1 } else { 0 },
         }
     }

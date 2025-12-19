@@ -12,11 +12,11 @@ pub use muxer::FlvMuxer;
 /// FLV file header
 #[derive(Debug, Clone)]
 pub struct FlvHeader {
-    pub signature: [u8; 3],  // "FLV"
-    pub version: u8,          // Usually 1
+    pub signature: [u8; 3], // "FLV"
+    pub version: u8,        // Usually 1
     pub has_video: bool,
     pub has_audio: bool,
-    pub data_offset: u32,     // Offset to first tag (usually 9)
+    pub data_offset: u32, // Offset to first tag (usually 9)
 }
 
 impl FlvHeader {
@@ -73,9 +73,9 @@ impl FlvTagType {
 #[derive(Debug, Clone)]
 pub struct FlvTagHeader {
     pub tag_type: FlvTagType,
-    pub data_size: u32,       // Size of tag data (24 bits)
-    pub timestamp: u32,       // Timestamp in milliseconds (24 bits + 8 bit extension)
-    pub stream_id: u32,       // Always 0 (24 bits)
+    pub data_size: u32, // Size of tag data (24 bits)
+    pub timestamp: u32, // Timestamp in milliseconds (24 bits + 8 bit extension)
+    pub stream_id: u32, // Always 0 (24 bits)
 }
 
 impl FlvTagHeader {
@@ -123,7 +123,7 @@ pub enum FlvVideoCodec {
     VP6 = 4,
     VP6Alpha = 5,
     ScreenVideo2 = 6,
-    AVC = 7,  // H.264
+    AVC = 7,   // H.264
     HEVC = 12, // H.265
 }
 

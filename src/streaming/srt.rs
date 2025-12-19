@@ -3,7 +3,7 @@
 //! SRT is an open source video transport protocol that optimizes streaming
 //! performance across unpredictable networks with secure streams.
 
-use super::{StreamSession, StreamProtocol};
+use super::{StreamProtocol, StreamSession};
 use crate::error::{Error, Result};
 use crate::format::Packet;
 

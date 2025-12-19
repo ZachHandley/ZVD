@@ -41,7 +41,7 @@ impl AacDecoder {
 
         // For now, we'll return an error indicating this needs proper implementation
         Err(Error::unsupported(
-            "AAC decoding requires full Symphonia integration - not yet implemented"
+            "AAC decoding requires full Symphonia integration - not yet implemented",
         ))
     }
 }

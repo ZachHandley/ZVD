@@ -9,11 +9,16 @@
 //! - **SRT** - Secure Reliable Transport
 //! - **WebRTC** - Web Real-Time Communication
 
-pub mod rtmp;
-pub mod hls;
 pub mod dash;
+pub mod hls;
+pub mod rtmp;
 pub mod rtp;
 pub mod srt;
+
+// Additional streaming modules
+pub mod ll_hls; // Low-latency HLS
+pub mod pipeline; // Streaming pipeline
+pub mod segmenter; // Media segmenter
 
 use crate::error::Result;
 use crate::format::Packet;

@@ -3,7 +3,7 @@
 //! ASS/SSA is a more advanced subtitle format supporting styling,
 //! positioning, and animation effects.
 
-use super::{Subtitle, SubtitleParser, SubtitleFormat, parse_timestamp};
+use super::{parse_timestamp, Subtitle, SubtitleFormat, SubtitleParser};
 use crate::error::{Error, Result};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -123,7 +123,10 @@ impl AssParser {
         let seconds = (total_centiseconds % 6000) / 100;
         let centiseconds = total_centiseconds % 100;
 
-        format!("{}:{:02}:{:02}.{:02}", hours, minutes, seconds, centiseconds)
+        format!(
+            "{}:{:02}:{:02}.{:02}",
+            hours, minutes, seconds, centiseconds
+        )
     }
 
     /// Parse style line
@@ -287,7 +290,9 @@ impl SubtitleParser for AssParser {
         ));
 
         output.push_str("[Events]\n");
-        output.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+        output.push_str(
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+        );
 
         for subtitle in subtitles {
             let style = subtitle.style.as_deref().unwrap_or("Default");

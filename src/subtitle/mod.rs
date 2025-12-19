@@ -2,13 +2,13 @@
 //!
 //! Support for common subtitle formats including SRT, WebVTT, and ASS/SSA.
 
+pub mod ass;
 pub mod srt;
 pub mod webvtt;
-pub mod ass;
 
+pub use ass::{AssEvent, AssParser, AssStyle};
 pub use srt::{SrtParser, SrtSubtitle};
-pub use webvtt::{WebVttParser, WebVttCue};
-pub use ass::{AssParser, AssEvent, AssStyle};
+pub use webvtt::{WebVttCue, WebVttParser};
 
 use crate::error::Result;
 use std::time::Duration;
@@ -81,7 +81,9 @@ pub fn parse_timestamp(s: &str) -> Result<Duration> {
         return Ok(duration);
     }
 
-    Err(crate::error::Error::invalid_input("Invalid timestamp format"))
+    Err(crate::error::Error::invalid_input(
+        "Invalid timestamp format",
+    ))
 }
 
 fn parse_srt_timestamp(s: &str) -> Option<Duration> {

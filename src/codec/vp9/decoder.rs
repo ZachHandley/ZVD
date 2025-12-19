@@ -34,7 +34,7 @@ impl Vp9Decoder {
         // 3. Return YUV420/YUV444 frame
 
         Err(Error::unsupported(
-            "VP9 decoding requires libvpx integration - not yet fully implemented"
+            "VP9 decoding requires libvpx integration - not yet fully implemented",
         ))
     }
 }

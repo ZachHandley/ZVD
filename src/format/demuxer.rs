@@ -79,15 +79,12 @@ pub fn create_demuxer(path: &Path) -> Result<Box<dyn Demuxer>> {
     use super::y4m::Y4mDemuxer;
 
     // Detect format from extension
-    let path_str = path.to_str().ok_or_else(|| {
-        Error::invalid_input("Invalid file path")
-    })?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| Error::invalid_input("Invalid file path"))?;
 
     let format = detect_format_from_extension(path_str).ok_or_else(|| {
-        Error::unsupported(format!(
-            "Cannot detect format for file: {}",
-            path.display()
-        ))
+        Error::unsupported(format!("Cannot detect format for file: {}", path.display()))
     })?;
 
     // Create demuxer based on format

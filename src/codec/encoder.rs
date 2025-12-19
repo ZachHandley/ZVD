@@ -14,6 +14,11 @@ pub trait Encoder {
 
     /// Flush the encoder
     fn flush(&mut self) -> Result<()>;
+
+    /// Get codec extradata (sequence header, parameter sets, etc.)
+    fn extradata(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 /// Encoder context with configuration
@@ -89,7 +94,11 @@ pub fn create_encoder(codec_id: &str, width: u32, height: u32) -> Result<Box<dyn
 }
 
 /// Create an audio encoder for the given codec
-pub fn create_audio_encoder(codec_id: &str, sample_rate: u32, channels: u16) -> Result<Box<dyn Encoder>> {
+pub fn create_audio_encoder(
+    codec_id: &str,
+    sample_rate: u32,
+    channels: u16,
+) -> Result<Box<dyn Encoder>> {
     match codec_id {
         #[cfg(feature = "opus-codec")]
         "opus" => {

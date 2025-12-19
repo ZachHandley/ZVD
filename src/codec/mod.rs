@@ -17,9 +17,9 @@ pub mod aac;
 #[cfg(feature = "opus-codec")]
 pub mod opus;
 
-pub mod vorbis;
 pub mod flac;
 pub mod mp3;
+pub mod vorbis;
 
 // Patent-free video codecs
 #[cfg(feature = "vp8-codec")]
@@ -28,9 +28,17 @@ pub mod vp8;
 #[cfg(feature = "vp9-codec")]
 pub mod vp9;
 
+// Neural video codec (experimental)
+#[cfg(feature = "zvc69")]
+pub mod zvc69;
+
 // Professional codecs - fully implemented with proper trait patterns
-pub mod prores;
 pub mod dnxhd;
+pub mod prores;
+
+// GOP and multi-pass encoding support
+pub mod gop;
+pub mod multipass;
 
 pub use av1::{Av1Decoder, Av1Encoder};
 pub use decoder::{create_decoder, Decoder, DecoderContext};
@@ -47,9 +55,9 @@ pub use aac::AacDecoder;
 #[cfg(feature = "opus-codec")]
 pub use opus::{OpusDecoder, OpusEncoder};
 
-pub use vorbis::VorbisDecoder;
 pub use flac::FlacDecoder;
 pub use mp3::Mp3Decoder;
+pub use vorbis::VorbisDecoder;
 
 #[cfg(feature = "vp8-codec")]
 pub use vp8::{Vp8Decoder, Vp8Encoder};
@@ -57,11 +65,21 @@ pub use vp8::{Vp8Decoder, Vp8Encoder};
 #[cfg(feature = "vp9-codec")]
 pub use vp9::{Vp9Decoder, Vp9Encoder};
 
-pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};
 pub use dnxhd::{DnxhdDecoder, DnxhdEncoder, DnxhdProfile};
+pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};
+
+#[cfg(feature = "zvc69")]
+pub use zvc69::{
+    benchmark_report, profile, stages, BenchmarkConfig, BenchmarkResults, EncodedFrame,
+    EncoderStats, FrameTiming, ProfileStats, Profiler, Quality, TimingFrameType, ZVC69Config,
+    ZVC69Decoder, ZVC69Encoder,
+};
 
 use crate::error::Result;
 use crate::util::MediaType;
+
+/// Type alias for codec/media type (for backwards compatibility)
+pub type CodecType = MediaType;
 
 /// Codec capability flags
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

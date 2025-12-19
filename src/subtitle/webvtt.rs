@@ -2,7 +2,7 @@
 //!
 //! WebVTT is the W3C standard for displaying timed text on the web.
 
-use super::{Subtitle, SubtitleParser, SubtitleFormat, parse_timestamp};
+use super::{parse_timestamp, Subtitle, SubtitleFormat, SubtitleParser};
 use crate::error::{Error, Result};
 use std::time::Duration;
 
@@ -43,7 +43,8 @@ impl SubtitleParser for WebVttParser {
         let mut lines = content.lines().peekable();
 
         // Check for WEBVTT header
-        let first_line = lines.next()
+        let first_line = lines
+            .next()
             .ok_or_else(|| Error::invalid_input("Empty WebVTT file"))?;
 
         if !first_line.starts_with("WEBVTT") {
@@ -86,7 +87,8 @@ impl SubtitleParser for WebVttParser {
             };
 
             // Read timestamp line
-            let timestamp_line = lines.next()
+            let timestamp_line = lines
+                .next()
                 .ok_or_else(|| Error::invalid_input("Missing timestamp line"))?;
 
             // Parse timestamp and optional settings
@@ -184,15 +186,13 @@ First subtitle
 
     #[test]
     fn test_webvtt_format() {
-        let subtitles = vec![
-            Subtitle {
-                index: None,
-                start_time: Duration::from_secs(1),
-                end_time: Duration::from_secs(4),
-                text: "Hello".to_string(),
-                style: None,
-            },
-        ];
+        let subtitles = vec![Subtitle {
+            index: None,
+            start_time: Duration::from_secs(1),
+            end_time: Duration::from_secs(4),
+            text: "Hello".to_string(),
+            style: None,
+        }];
 
         let parser = WebVttParser::new();
         let output = parser.format(&subtitles).unwrap();

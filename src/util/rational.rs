@@ -1,7 +1,7 @@
 //! Rational number representation for timestamps and frame rates
 
 use std::fmt;
-use std::ops::{Add, Sub, Mul, Div};
+use std::ops::{Add, Div, Mul, Sub};
 
 /// A rational number represented as numerator/denominator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

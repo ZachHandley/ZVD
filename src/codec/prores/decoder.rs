@@ -1,6 +1,6 @@
 //! ProRes decoder implementation
 
-use super::{ProResProfile, ProResFrameHeader};
+use super::{ProResFrameHeader, ProResProfile};
 use crate::codec::{Decoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
@@ -107,18 +107,14 @@ impl ProResDecoder {
 
         // For now, create an empty frame with correct dimensions
         let pixel_format = if header.alpha_info != 0 {
-            PixelFormat::YUV444P  // Use 4:4:4 for alpha (no YUVA format available)
+            PixelFormat::YUV444P // Use 4:4:4 for alpha (no YUVA format available)
         } else if header.chroma_format == 3 {
             PixelFormat::YUV444P
         } else {
             PixelFormat::YUV422P
         };
 
-        let mut frame = VideoFrame::new(
-            self.width,
-            self.height,
-            pixel_format,
-        );
+        let mut frame = VideoFrame::new(self.width, self.height, pixel_format);
         frame.pts = Timestamp::new(0);
         Ok(frame)
     }
@@ -137,10 +133,8 @@ impl Decoder for ProResDecoder {
 
         // Decode frame data
         let data_slice = packet.data.as_slice();
-        let mut video_frame = self.decode_frame_data(
-            &data_slice[header.header_size as usize..],
-            &header,
-        )?;
+        let mut video_frame =
+            self.decode_frame_data(&data_slice[header.header_size as usize..], &header)?;
 
         video_frame.pts = packet.pts;
 

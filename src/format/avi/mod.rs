@@ -49,8 +49,8 @@ impl AviMainHeader {
 /// AVI stream header (strh)
 #[derive(Debug, Clone)]
 pub struct AviStreamHeader {
-    pub fcc_type: [u8; 4],      // 'vids' or 'auds'
-    pub fcc_handler: [u8; 4],   // Codec FourCC
+    pub fcc_type: [u8; 4],    // 'vids' or 'auds'
+    pub fcc_handler: [u8; 4], // Codec FourCC
     pub flags: u32,
     pub priority: u16,
     pub language: u16,

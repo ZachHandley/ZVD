@@ -45,9 +45,8 @@ impl SymphoniaDemuxer {
 impl Demuxer for SymphoniaDemuxer {
     fn open(&mut self, path: &Path) -> Result<()> {
         // Open the file
-        let file = File::open(path).map_err(|e| {
-            Error::format(format!("Failed to open file: {}", e))
-        })?;
+        let file =
+            File::open(path).map_err(|e| Error::format(format!("Failed to open file: {}", e)))?;
 
         // Create media source stream
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -85,19 +84,14 @@ impl Demuxer for SymphoniaDemuxer {
         // Note: We report "pcm" as the codec because the Symphonia demuxer
         // decodes the audio to PCM samples internally. The original codec
         // (FLAC, MP3, Vorbis) is transparent to the caller.
-        let mut stream_info = StreamInfo::new(
-            track.id as usize,
-            MediaType::Audio,
-            "pcm".to_string(),
-        );
+        let mut stream_info =
+            StreamInfo::new(track.id as usize, MediaType::Audio, "pcm".to_string());
 
         // Set audio info
         if let Some(sample_rate) = codec_params.sample_rate {
             stream_info.time_base = Rational::new(1, sample_rate as i64);
 
-            let channels = codec_params.channels
-                .map(|c| c.count())
-                .unwrap_or(2) as u16;
+            let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2) as u16;
 
             // Determine sample format from bits per coded sample
             let bits = codec_params.bits_per_coded_sample.unwrap_or(16);
@@ -153,19 +147,17 @@ impl Demuxer for SymphoniaDemuxer {
             .ok_or_else(|| Error::invalid_state("Decoder not initialized"))?;
 
         // Read next packet from format reader
-        let packet = reader
-            .next_packet()
-            .map_err(|e| match e {
-                symphonia::core::errors::Error::IoError(ref io_err) => {
-                    if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
-                        Error::EndOfStream
-                    } else {
-                        Error::format(format!("IO error reading packet: {}", e))
-                    }
+        let packet = reader.next_packet().map_err(|e| match e {
+            symphonia::core::errors::Error::IoError(ref io_err) => {
+                if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
+                    Error::EndOfStream
+                } else {
+                    Error::format(format!("IO error reading packet: {}", e))
                 }
-                symphonia::core::errors::Error::ResetRequired => Error::EndOfStream,
-                _ => Error::format(format!("Failed to read packet: {}", e)),
-            })?;
+            }
+            symphonia::core::errors::Error::ResetRequired => Error::EndOfStream,
+            _ => Error::format(format!("Failed to read packet: {}", e)),
+        })?;
 
         // Store packet metadata
         let pts = packet.ts();
@@ -197,10 +189,7 @@ impl Demuxer for SymphoniaDemuxer {
             .collect();
 
         // Create our packet with decoded PCM data
-        let mut zvd_packet = Packet::new(
-            track_id as usize,
-            Buffer::from_vec(byte_data),
-        );
+        let mut zvd_packet = Packet::new(track_id as usize, Buffer::from_vec(byte_data));
 
         zvd_packet.pts = Timestamp::new(pts as i64);
         zvd_packet.duration = duration as i64;

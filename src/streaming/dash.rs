@@ -66,8 +66,14 @@ impl DashManifest {
 
         // Adaptation Sets for each quality
         for (idx, profile) in self.profiles.iter().enumerate() {
-            mpd.push_str(&format!("    <AdaptationSet id=\"{}\" mimeType=\"video/mp4\" ", idx));
-            mpd.push_str(&format!("width=\"{}\" height=\"{}\">\n", profile.width, profile.height));
+            mpd.push_str(&format!(
+                "    <AdaptationSet id=\"{}\" mimeType=\"video/mp4\" ",
+                idx
+            ));
+            mpd.push_str(&format!(
+                "width=\"{}\" height=\"{}\">\n",
+                profile.width, profile.height
+            ));
 
             // Representation
             mpd.push_str(&format!("      <Representation id=\"{}\" ", idx));
@@ -77,7 +83,10 @@ impl DashManifest {
             // Segment list
             mpd.push_str("        <SegmentList>\n");
             for segment in &self.segments {
-                mpd.push_str(&format!("          <SegmentURL media=\"{}\" />\n", segment.filename));
+                mpd.push_str(&format!(
+                    "          <SegmentURL media=\"{}\" />\n",
+                    segment.filename
+                ));
             }
             mpd.push_str("        </SegmentList>\n");
 
@@ -96,8 +105,7 @@ impl DashManifest {
         let path = self.output_dir.join(filename);
         let content = self.generate_mpd(is_live);
 
-        std::fs::write(&path, content)
-            .map_err(|e| Error::Io(e))?;
+        std::fs::write(&path, content).map_err(|e| Error::Io(e))?;
 
         Ok(())
     }

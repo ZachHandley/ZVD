@@ -93,7 +93,9 @@ impl ResampleFilter {
         for plane in &mut output_frame.data {
             let samples = plane.as_slice();
             if samples.len() % 2 != 0 {
-                return Err(Error::filter("Audio data must be i16 PCM (even byte count)"));
+                return Err(Error::filter(
+                    "Audio data must be i16 PCM (even byte count)",
+                ));
             }
 
             let input_samples: Vec<i16> = samples
@@ -182,10 +184,7 @@ impl NormalizeFilter {
             return 0.0;
         }
 
-        let sum_squares: f64 = samples
-            .iter()
-            .map(|&s| (s as f64 / 32768.0).powi(2))
-            .sum();
+        let sum_squares: f64 = samples.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum();
         (sum_squares / samples.len() as f64).sqrt() as f32
     }
 
@@ -196,7 +195,9 @@ impl NormalizeFilter {
         for plane in &mut output_frame.data {
             let samples_bytes = plane.as_slice();
             if samples_bytes.len() % 2 != 0 {
-                return Err(Error::filter("Audio data must be i16 PCM (even byte count)"));
+                return Err(Error::filter(
+                    "Audio data must be i16 PCM (even byte count)",
+                ));
             }
 
             // Convert to i16 samples

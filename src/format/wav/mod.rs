@@ -3,12 +3,12 @@
 //! This module implements RIFF/WAV file format parsing and writing.
 //! WAV is a simple uncompressed audio format widely used for audio interchange.
 
-pub mod header;
 pub mod demuxer;
+pub mod header;
 pub mod muxer;
 
-pub use header::{WavHeader, WavFormat, FormatTag};
 pub use demuxer::WavDemuxer;
+pub use header::{FormatTag, WavFormat, WavHeader};
 pub use muxer::WavMuxer;
 
 /// WAV format magic numbers
@@ -36,9 +36,7 @@ impl ChunkHeader {
         let mut id = [0u8; 4];
         id.copy_from_slice(&bytes[0..4]);
 
-        let size = u32::from_le_bytes([
-            bytes[4], bytes[5], bytes[6], bytes[7]
-        ]);
+        let size = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
 
         Some(ChunkHeader { id, size })
     }

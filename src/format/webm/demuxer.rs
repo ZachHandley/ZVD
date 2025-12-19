@@ -56,8 +56,8 @@ impl Default for WebmDemuxer {
 impl Demuxer for WebmDemuxer {
     fn open(&mut self, path: &Path) -> Result<()> {
         // Open the file
-        let file_handle = File::open(path)
-            .map_err(|e| Error::format(format!("Failed to open file: {}", e)))?;
+        let file_handle =
+            File::open(path).map_err(|e| Error::format(format!("Failed to open file: {}", e)))?;
 
         // Open with matroska-demuxer
         let mut mkv_file = MatroskaFile::open(file_handle)
@@ -98,7 +98,10 @@ impl Demuxer for WebmDemuxer {
                         sample_rate: audio_meta.sampling_frequency() as u32,
                         channels: audio_meta.channels().get() as u16,
                         sample_fmt: "f32".to_string(), // WebM typically uses float
-                        bits_per_sample: audio_meta.bit_depth().map(|d| d.get() as u8).unwrap_or(16),
+                        bits_per_sample: audio_meta
+                            .bit_depth()
+                            .map(|d| d.get() as u8)
+                            .unwrap_or(16),
                         bit_rate: None,
                     });
                 }

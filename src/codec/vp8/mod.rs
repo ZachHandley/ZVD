@@ -9,11 +9,11 @@
 //! Google has released all patents for free use.
 
 #[cfg(feature = "vp8-codec")]
-pub mod encoder;
-#[cfg(feature = "vp8-codec")]
 pub mod decoder;
+#[cfg(feature = "vp8-codec")]
+pub mod encoder;
 
 #[cfg(feature = "vp8-codec")]
-pub use encoder::Vp8Encoder;
-#[cfg(feature = "vp8-codec")]
 pub use decoder::Vp8Decoder;
+#[cfg(feature = "vp8-codec")]
+pub use encoder::Vp8Encoder;

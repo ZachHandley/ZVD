@@ -31,9 +31,11 @@ impl<R: Read + Seek> AviDemuxer<R> {
         let mut fourcc = [0u8; 4];
         let mut size_buf = [0u8; 4];
 
-        self.reader.read_exact(&mut fourcc)
+        self.reader
+            .read_exact(&mut fourcc)
             .map_err(|e| Error::Io(e))?;
-        self.reader.read_exact(&mut size_buf)
+        self.reader
+            .read_exact(&mut size_buf)
             .map_err(|e| Error::Io(e))?;
 
         let size = u32::from_le_bytes(size_buf);
@@ -51,7 +53,8 @@ impl<R: Read + Seek> AviDemuxer<R> {
 
         // Read AVI type
         let mut avi_type = [0u8; 4];
-        self.reader.read_exact(&mut avi_type)
+        self.reader
+            .read_exact(&mut avi_type)
             .map_err(|e| Error::Io(e))?;
         if &avi_type != b"AVI " {
             return Err(Error::invalid_input("Not a valid AVI file"));

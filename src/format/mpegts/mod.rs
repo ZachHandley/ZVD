@@ -83,8 +83,8 @@ impl TsPacketHeader {
 
 /// Standard PIDs
 pub mod pids {
-    pub const PAT: u16 = 0x0000;  // Program Association Table
-    pub const CAT: u16 = 0x0001;  // Conditional Access Table
+    pub const PAT: u16 = 0x0000; // Program Association Table
+    pub const CAT: u16 = 0x0001; // Conditional Access Table
     pub const TSDT: u16 = 0x0002; // Transport Stream Description Table
     pub const NULL: u16 = 0x1FFF; // Null packets
 }

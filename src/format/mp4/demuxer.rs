@@ -6,9 +6,9 @@
 #[cfg(feature = "mp4-support")]
 use crate::error::{Error, Result};
 #[cfg(feature = "mp4-support")]
-use crate::format::{AudioInfo, Demuxer, DemuxerContext, Packet, Stream, StreamInfo, VideoInfo};
-#[cfg(feature = "mp4-support")]
 use crate::format::packet::PacketFlags;
+#[cfg(feature = "mp4-support")]
+use crate::format::{AudioInfo, Demuxer, DemuxerContext, Packet, Stream, StreamInfo, VideoInfo};
 #[cfg(feature = "mp4-support")]
 use crate::util::{Buffer, MediaType, Rational, Timestamp};
 #[cfg(feature = "mp4-support")]
@@ -217,8 +217,7 @@ impl Demuxer for Mp4Demuxer {
             }
         }
 
-        let track_id = next_track_id
-            .ok_or_else(|| Error::EndOfStream)?;
+        let track_id = next_track_id.ok_or_else(|| Error::EndOfStream)?;
 
         let sample_id = self.track_samples[&track_id];
 
@@ -234,7 +233,7 @@ impl Demuxer for Mp4Demuxer {
         }
 
         // Find stream info for this track
-        let _stream = self
+        let stream = self
             .context
             .streams()
             .iter()
@@ -249,6 +248,7 @@ impl Demuxer for Mp4Demuxer {
 
         let packet = Packet {
             stream_index: track_id as usize,
+            codec_type: stream.info.media_type,
             data: Buffer::from_vec(sample.bytes.to_vec()),
             pts,
             dts,

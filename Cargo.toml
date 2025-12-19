@@ -17,6 +17,14 @@ path = "src/main.rs"
 name = "zvd_lib"
 path = "src/lib.rs"
 
+[[bench]]
+name = "codec_benchmarks"
+harness = false
+
+[[bench]]
+name = "filter_benchmarks"
+harness = false
+
 [dependencies]
 # CLI and argument parsing
 clap = { version = "4.5", features = ["derive", "cargo"] }
@@ -81,6 +89,9 @@ rav1e = { version = "0.8", default-features = false }
 # WebM/Matroska demuxer (MIT)
 matroska-demuxer = "0.6"
 
+# WebM/Matroska muxer (MIT)
+mkv-element = { version = "0.3", optional = true }
+
 # MP4 container support (MIT)
 mp4 = { version = "0.14", optional = true }
 
@@ -95,9 +106,9 @@ openh264 = { version = "0.6", optional = true }
 opus = { version = "0.3", optional = true }
 
 # VP8/VP9 codecs (royalty-free)
-# Note: Full implementation would use libvpx (requires system library)
-# Currently using placeholder implementations
-# vpx = { version = "0.1", optional = true }
+# libvpx bindings - BSD license (optional, we have pure Rust implementations)
+# System requirement: libvpx must be installed (apt: libvpx-dev, brew: libvpx)
+vpx-sys = { version = "0.1", optional = true }
 
 # Color space conversions
 rgb = "0.8"
@@ -108,6 +119,20 @@ rayon = "1.10"
 # Memory management
 parking_lot = "0.12"
 
+# ZVC69 Neural Codec Dependencies
+# constriction - ANS entropy coding for learned compression
+constriction = "0.4"
+
+# probability - Gaussian distributions for entropy models
+probability = "0.20"
+
+# ort - ONNX Runtime for neural network inference (optional)
+# Supports CUDA, TensorRT, DirectML, CoreML backends
+ort = { version = "2.0.0-rc", optional = true }
+
+# byteorder - Binary data serialization for bitstream handling
+byteorder = "1.5"
+
 [features]
 # Default features - only patent-free, royalty-free codecs
 default = []
@@ -115,23 +140,34 @@ default = []
 # Patent-free audio codecs
 opus-codec = ["opus"]
 
-# Patent-free video codecs (placeholder implementations)
+# Patent-free video codecs
+# Pure Rust implementations are always available; vpx-sys adds libvpx bindings
 vp8-codec = []
 vp9-codec = []
+vp8-libvpx = ["vpx-sys"]
+vp9-libvpx = ["vpx-sys"]
 
 # Optional patent-encumbered codec support
 # Users must acknowledge patent licensing requirements (see CODEC_LICENSES.md)
 h264 = ["openh264", "mp4"]
+h265 = []  # Pure Rust H.265 implementation (no external dependencies)
 aac = ["symphonia-codec-aac", "mp4"]
 mp4-support = ["mp4"]
+webm-support = ["mkv-element"]
+
+# ZVC69 Neural Video Codec
+# Enables GPU-accelerated neural video compression via ONNX Runtime
+zvc69 = ["ort"]
 
 # Convenience features
 all-free-codecs = ["opus-codec", "vp8-codec", "vp9-codec"]
-all-codecs = ["h264", "aac", "mp4-support", "all-free-codecs"]
+all-containers = ["mp4-support", "webm-support"]
+all-codecs = ["h264", "h265", "aac", "all-containers", "all-free-codecs"]
 
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.5"
+tempfile = "3.8"
 
 [profile.release]
 opt-level = 3

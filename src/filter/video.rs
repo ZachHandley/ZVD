@@ -345,7 +345,10 @@ impl RotateFilter {
                 }
                 Ok(dst)
             }
-            _ => Err(Error::filter(format!("Unsupported rotation angle: {}", angle))),
+            _ => Err(Error::filter(format!(
+                "Unsupported rotation angle: {}",
+                angle
+            ))),
         }
     }
 }
@@ -432,11 +435,7 @@ impl FlipFilter {
             Buffer::from_vec(u_flipped),
             Buffer::from_vec(v_flipped),
         ];
-        output_frame.linesize = vec![
-            width as usize,
-            (width / 2) as usize,
-            (width / 2) as usize,
-        ];
+        output_frame.linesize = vec![width as usize, (width / 2) as usize, (width / 2) as usize];
         output_frame.pts = video_frame.pts;
         output_frame.duration = video_frame.duration;
         output_frame.keyframe = video_frame.keyframe;
@@ -452,7 +451,7 @@ impl FlipFilter {
         for y in 0..height {
             for x in 0..width {
                 let src_idx = (y * width + x) as usize;
-                
+
                 let dst_x = if self.horizontal { width - 1 - x } else { x };
                 let dst_y = if self.vertical { height - 1 - y } else { y };
                 let dst_idx = (dst_y * width + dst_x) as usize;
@@ -529,11 +528,7 @@ impl BrightnessContrastFilter {
             Buffer::from_vec(u_plane.to_vec()),
             Buffer::from_vec(v_plane.to_vec()),
         ];
-        output_frame.linesize = vec![
-            width as usize,
-            (width / 2) as usize,
-            (width / 2) as usize,
-        ];
+        output_frame.linesize = vec![width as usize, (width / 2) as usize, (width / 2) as usize];
         output_frame.pts = video_frame.pts;
         output_frame.duration = video_frame.duration;
         output_frame.keyframe = video_frame.keyframe;
@@ -548,16 +543,16 @@ impl BrightnessContrastFilter {
 
         for &pixel in src {
             let value = pixel as f32;
-            
+
             // Apply contrast first (around midpoint 128)
             let contrasted = ((value - 128.0) * self.contrast + 128.0);
-            
+
             // Apply brightness
             let adjusted = contrasted + self.brightness as f32;
-            
+
             // Clamp to valid range
             let clamped = adjusted.clamp(0.0, 255.0) as u8;
-            
+
             dst.push(clamped);
         }
 
@@ -579,7 +574,9 @@ impl Filter for BrightnessContrastFilter {
                 let adjusted = self.adjust_yuv420p(&video_frame)?;
                 Ok(vec![Frame::Video(adjusted)])
             }
-            Frame::Audio(_) => Err(Error::filter("BrightnessContrast filter only accepts video frames")),
+            Frame::Audio(_) => Err(Error::filter(
+                "BrightnessContrast filter only accepts video frames",
+            )),
         }
     }
 

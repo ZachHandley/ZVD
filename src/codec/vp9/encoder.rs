@@ -75,7 +75,7 @@ impl Vp9Encoder {
         // 3. Return compressed bitstream
 
         Err(Error::unsupported(
-            "VP9 encoding requires libvpx integration - not yet fully implemented"
+            "VP9 encoding requires libvpx integration - not yet fully implemented",
         ))
     }
 }

@@ -3,11 +3,11 @@
 //! DNxHD (Digital Nonlinear Extensible High Definition) is Avid's
 //! professional video codec for high-quality editing workflows.
 
-pub mod encoder;
 pub mod decoder;
+pub mod encoder;
 
-pub use encoder::DnxhdEncoder;
 pub use decoder::DnxhdDecoder;
+pub use encoder::{DnxhdEncoder, DnxhdEncoderConfig};
 
 /// DNxHD profile (Compression ID)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,13 +111,13 @@ impl DnxhdProfile {
 /// DNxHD frame header
 #[derive(Debug, Clone)]
 pub struct DnxhdFrameHeader {
-    pub header_prefix: u32,      // 0x000002800001
+    pub header_prefix: u32, // 0x000002800001
     pub compression_id: u32,
     pub width: u16,
     pub height: u16,
     pub is_progressive: bool,
-    pub is_422: bool,             // False for 4:4:4
-    pub bit_depth: u8,            // 8 or 10
+    pub is_422: bool,  // False for 4:4:4
+    pub bit_depth: u8, // 8 or 10
 }
 
 impl DnxhdFrameHeader {

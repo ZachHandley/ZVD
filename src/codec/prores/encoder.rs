@@ -1,6 +1,6 @@
 //! ProRes encoder implementation
 
-use super::{ProResProfile, ProResFrameHeader};
+use super::{ProResFrameHeader, ProResProfile};
 use crate::codec::{Encoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
@@ -38,11 +38,7 @@ impl ProResEncoder {
 
     /// Encode frame header
     fn encode_frame_header(&self) -> Vec<u8> {
-        let header = ProResFrameHeader::new(
-            self.width as u16,
-            self.height as u16,
-            self.profile,
-        );
+        let header = ProResFrameHeader::new(self.width as u16, self.height as u16, self.profile);
 
         let mut data = Vec::new();
 
@@ -119,7 +115,9 @@ impl Encoder for ProResEncoder {
     fn send_frame(&mut self, frame: &Frame) -> Result<()> {
         let video_frame = match frame {
             Frame::Video(vf) => vf,
-            Frame::Audio(_) => return Err(Error::codec("ProRes encoder only accepts video frames")),
+            Frame::Audio(_) => {
+                return Err(Error::codec("ProRes encoder only accepts video frames"))
+            }
         };
 
         if video_frame.width != self.width || video_frame.height != self.height {

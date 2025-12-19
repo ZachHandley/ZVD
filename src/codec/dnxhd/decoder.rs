@@ -1,6 +1,6 @@
 //! DNxHD decoder implementation
 
-use super::{DnxhdProfile, DnxhdFrameHeader};
+use super::{DnxhdFrameHeader, DnxhdProfile};
 use crate::codec::{Decoder, Frame, VideoFrame};
 use crate::error::{Error, Result};
 use crate::format::Packet;
@@ -90,11 +90,7 @@ impl DnxhdDecoder {
             }
         };
 
-        let mut frame = VideoFrame::new(
-            self.width,
-            self.height,
-            pixel_format,
-        );
+        let mut frame = VideoFrame::new(self.width, self.height, pixel_format);
         frame.pts = Timestamp::new(0);
         Ok(frame)
     }

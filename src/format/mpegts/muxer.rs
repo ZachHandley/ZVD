@@ -1,16 +1,16 @@
 //! MPEG-TS muxer implementation
 
-use super::{TsPacketHeader, StreamType, TS_PACKET_SIZE, pids};
+use super::{pids, StreamType, TsPacketHeader, TS_PACKET_SIZE};
 use crate::error::{Error, Result};
 use crate::format::{Muxer, Packet, Stream};
-use std::io::Write;
 use std::collections::HashMap;
+use std::io::Write;
 
 /// MPEG-TS muxer
 pub struct MpegtsMuxer<W: Write> {
     writer: W,
     streams: Vec<Stream>,
-    stream_pids: HashMap<usize, u16>, // stream index -> PID
+    stream_pids: HashMap<usize, u16>,      // stream index -> PID
     continuity_counters: HashMap<u16, u8>, // PID -> counter
     next_pid: u16,
     pmt_pid: u16,
@@ -49,20 +49,21 @@ impl<W: Write> MpegtsMuxer<W> {
         let header = TsPacketHeader::new(pid, start, counter);
 
         // Write header
-        self.writer.write_all(&header.to_bytes())
+        self.writer
+            .write_all(&header.to_bytes())
             .map_err(|e| Error::Io(e))?;
 
         // Write payload, padding with 0xFF if needed
         let payload_size = payload.len().min(TS_PACKET_SIZE - 4);
-        self.writer.write_all(&payload[..payload_size])
+        self.writer
+            .write_all(&payload[..payload_size])
             .map_err(|e| Error::Io(e))?;
 
         // Pad to packet size
         let padding_size = TS_PACKET_SIZE - 4 - payload_size;
         if padding_size > 0 {
             let padding = vec![0xFF; padding_size];
-            self.writer.write_all(&padding)
-                .map_err(|e| Error::Io(e))?;
+            self.writer.write_all(&padding).map_err(|e| Error::Io(e))?;
         }
 
         self.packet_count += 1;
@@ -142,10 +143,14 @@ impl<W: Write> MpegtsMuxer<W> {
 }
 
 impl<W: Write> Muxer for MpegtsMuxer<W> {
-    fn create(&mut self, _path: &std::path::Path) -> Result<()> { Ok(()) }
+    fn create(&mut self, _path: &std::path::Path) -> Result<()> {
+        Ok(())
+    }
     fn add_stream(&mut self, stream: Stream) -> Result<usize> {
         if self.started {
-            return Err(Error::invalid_state("Cannot add stream after header written"));
+            return Err(Error::invalid_state(
+                "Cannot add stream after header written",
+            ));
         }
 
         let index = self.streams.len();
@@ -179,7 +184,9 @@ impl<W: Write> Muxer for MpegtsMuxer<W> {
         }
 
         // Get PID for this stream
-        let pid = self.stream_pids.get(&packet.stream_index)
+        let pid = self
+            .stream_pids
+            .get(&packet.stream_index)
             .ok_or_else(|| Error::invalid_input("Invalid stream index"))?;
 
         // Placeholder - would create PES packet and write TS packets

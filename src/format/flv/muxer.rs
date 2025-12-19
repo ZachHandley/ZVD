@@ -1,6 +1,6 @@
 //! FLV muxer implementation
 
-use super::{FlvHeader, FlvTagHeader, FlvTagType, FlvVideoCodec, FlvAudioCodec};
+use super::{FlvAudioCodec, FlvHeader, FlvTagHeader, FlvTagType, FlvVideoCodec};
 use crate::error::{Error, Result};
 use crate::format::{Muxer, Packet, Stream};
 use std::io::Write;
@@ -28,7 +28,8 @@ impl<W: Write> FlvMuxer<W> {
 
     /// Write previous tag size
     fn write_prev_tag_size(&mut self, size: u32) -> Result<()> {
-        self.writer.write_all(&size.to_be_bytes())
+        self.writer
+            .write_all(&size.to_be_bytes())
             .map_err(|e| Error::Io(e))?;
         Ok(())
     }
@@ -38,12 +39,12 @@ impl<W: Write> FlvMuxer<W> {
         let header = FlvTagHeader::new(tag_type, data.len() as u32, timestamp);
 
         // Write tag header
-        self.writer.write_all(&header.to_bytes())
+        self.writer
+            .write_all(&header.to_bytes())
             .map_err(|e| Error::Io(e))?;
 
         // Write tag data
-        self.writer.write_all(data)
-            .map_err(|e| Error::Io(e))?;
+        self.writer.write_all(data).map_err(|e| Error::Io(e))?;
 
         // Write previous tag size
         let prev_size = 11 + data.len() as u32;
@@ -62,7 +63,9 @@ impl<W: Write> FlvMuxer<W> {
 }
 
 impl<W: Write> Muxer for FlvMuxer<W> {
-    fn create(&mut self, _path: &std::path::Path) -> Result<()> { Ok(()) }
+    fn create(&mut self, _path: &std::path::Path) -> Result<()> {
+        Ok(())
+    }
     fn add_stream(&mut self, stream: Stream) -> Result<usize> {
         let index = self.streams.len();
         self.streams.push(stream);
@@ -75,7 +78,8 @@ impl<W: Write> Muxer for FlvMuxer<W> {
         }
 
         // Write FLV header
-        self.writer.write_all(&self.header.to_bytes())
+        self.writer
+            .write_all(&self.header.to_bytes())
             .map_err(|e| Error::Io(e))?;
 
         // Write PreviousTagSize0 (always 0)
@@ -95,7 +99,11 @@ impl<W: Write> Muxer for FlvMuxer<W> {
 
         // Placeholder - would determine tag type from packet stream index
         // and write appropriate FLV tag with encoded data
-        let timestamp_value = if packet.pts.is_valid() { packet.pts.value } else { 0 };
+        let timestamp_value = if packet.pts.is_valid() {
+            packet.pts.value
+        } else {
+            0
+        };
         let timestamp = (timestamp_value / 1000) as u32; // Convert to milliseconds
 
         Ok(())
