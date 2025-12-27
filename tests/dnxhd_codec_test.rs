@@ -356,7 +356,7 @@ fn test_dnxhd_roundtrip_with_quality_check() {
     let width = 128;
     let height = 128;
 
-    let config = DnxhdEncoderConfig { qscale: 4 }; // Low qscale = high quality
+    let config = DnxhdEncoderConfig { qscale: 4, target_bitrate: 0 }; // Low qscale = high quality
     let mut encoder = DnxhdEncoder::with_config(width, height, DnxhdProfile::DnxhrHq, config)
         .expect("Failed to create encoder");
 
@@ -616,7 +616,7 @@ fn test_dnxhd_qscale_range_8bit() {
     let invalid_qscales = [0, 32, 50, 63];
 
     for qscale in valid_qscales {
-        let config = DnxhdEncoderConfig { qscale };
+        let config = DnxhdEncoderConfig { qscale, target_bitrate: 0 };
         let result = DnxhdEncoder::with_config(64, 64, DnxhdProfile::DnxhrHq, config);
         assert!(
             result.is_ok(),
@@ -626,7 +626,7 @@ fn test_dnxhd_qscale_range_8bit() {
     }
 
     for qscale in invalid_qscales {
-        let config = DnxhdEncoderConfig { qscale };
+        let config = DnxhdEncoderConfig { qscale, target_bitrate: 0 };
         let result = DnxhdEncoder::with_config(64, 64, DnxhdProfile::DnxhrHq, config);
         assert!(
             result.is_err(),
@@ -643,7 +643,7 @@ fn test_dnxhd_qscale_range_10bit() {
     let invalid_qscales = [0, 64, 100];
 
     for qscale in valid_qscales {
-        let config = DnxhdEncoderConfig { qscale };
+        let config = DnxhdEncoderConfig { qscale, target_bitrate: 0 };
         let result = DnxhdEncoder::with_config(1920, 1080, DnxhdProfile::Dnxhd220, config);
         assert!(
             result.is_ok(),
@@ -653,7 +653,7 @@ fn test_dnxhd_qscale_range_10bit() {
     }
 
     for qscale in invalid_qscales {
-        let config = DnxhdEncoderConfig { qscale };
+        let config = DnxhdEncoderConfig { qscale, target_bitrate: 0 };
         let result = DnxhdEncoder::with_config(1920, 1080, DnxhdProfile::Dnxhd220, config);
         assert!(
             result.is_err(),
@@ -669,8 +669,8 @@ fn test_dnxhd_qscale_affects_output_size() {
     let width = 256;
     let height = 256;
 
-    let config_low_q = DnxhdEncoderConfig { qscale: 4 }; // High quality
-    let config_high_q = DnxhdEncoderConfig { qscale: 28 }; // Lower quality
+    let config_low_q = DnxhdEncoderConfig { qscale: 4, target_bitrate: 0 }; // High quality
+    let config_high_q = DnxhdEncoderConfig { qscale: 28, target_bitrate: 0 }; // Lower quality
 
     let mut encoder_low =
         DnxhdEncoder::with_config(width, height, DnxhdProfile::DnxhrSq, config_low_q)

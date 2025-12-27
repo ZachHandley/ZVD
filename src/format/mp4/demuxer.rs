@@ -145,6 +145,88 @@ impl Mp4Demuxer {
 
         Ok(stream_info)
     }
+
+    /// Binary search to find the sample ID whose start_time is closest to the target timestamp
+    /// Note: This is a static method to avoid borrowing issues with self and reader
+    fn binary_search_sample_by_time(
+        reader: &mut Mp4Reader<File>,
+        track_id: u32,
+        sample_count: u32,
+        target_time: u64,
+    ) -> Result<u32> {
+        if sample_count == 0 {
+            return Err(Error::format("Track has no samples"));
+        }
+
+        // MP4 samples are 1-indexed
+        let mut low: u32 = 1;
+        let mut high: u32 = sample_count;
+        let mut best_sample_id: u32 = 1;
+        let mut best_diff: u64 = u64::MAX;
+
+        while low <= high {
+            let mid = low + (high - low) / 2;
+
+            let sample = reader
+                .read_sample(track_id, mid)
+                .map_err(|e| Error::format(format!("Failed to read sample {}: {}", mid, e)))?
+                .ok_or_else(|| Error::format(format!("Sample {} not found", mid)))?;
+
+            let sample_time = sample.start_time;
+            let diff = if sample_time >= target_time {
+                sample_time - target_time
+            } else {
+                target_time - sample_time
+            };
+
+            if diff < best_diff {
+                best_diff = diff;
+                best_sample_id = mid;
+            }
+
+            if sample_time == target_time {
+                return Ok(mid);
+            } else if sample_time < target_time {
+                low = mid + 1;
+            } else {
+                if mid == 1 {
+                    break;
+                }
+                high = mid - 1;
+            }
+        }
+
+        Ok(best_sample_id)
+    }
+
+    /// Find the nearest sync sample (keyframe) at or before the given sample_id
+    /// Note: This is a static method to avoid borrowing issues with self and reader
+    fn find_nearest_sync_sample(
+        reader: &mut Mp4Reader<File>,
+        track_id: u32,
+        sample_id: u32,
+        is_audio: bool,
+    ) -> Result<u32> {
+        // For audio tracks, all samples are typically sync samples
+        if is_audio {
+            return Ok(sample_id);
+        }
+
+        // Search backwards from sample_id to find a sync sample
+        for id in (1..=sample_id).rev() {
+            let sample = reader
+                .read_sample(track_id, id)
+                .map_err(|e| Error::format(format!("Failed to read sample {}: {}", id, e)))?
+                .ok_or_else(|| Error::format(format!("Sample {} not found", id)))?;
+
+            if sample.is_sync {
+                return Ok(id);
+            }
+        }
+
+        // If no sync sample found before, return sample 1 (should always be sync)
+        Ok(1)
+    }
 }
 
 #[cfg(feature = "mp4-support")]
@@ -260,14 +342,135 @@ impl Demuxer for Mp4Demuxer {
         Ok(packet)
     }
 
-    fn seek(&mut self, _stream_index: usize, _timestamp: i64) -> Result<()> {
-        // Seeking in MP4 requires:
-        // 1. Converting timestamp to timescale units for the specific track
-        // 2. Binary search through the sample table to find the closest keyframe
-        // 3. Updating track_samples iterators to start from that position
-        // 4. Handling stss (sync sample table) for keyframe locations
-        // This would leverage the mp4 crate's sample iteration capabilities
-        Err(Error::format("Seeking not yet implemented for MP4"))
+    fn seek(&mut self, stream_index: usize, timestamp: i64) -> Result<()> {
+        // Handle seek to beginning (timestamp <= 0)
+        if timestamp <= 0 {
+            // Reset all tracks to sample 1 (MP4 samples are 1-indexed)
+            for (_, sample_idx) in self.track_samples.iter_mut() {
+                *sample_idx = 1;
+            }
+            return Ok(());
+        }
+
+        // Find the track ID for the given stream index
+        let track_id = self
+            .track_samples
+            .keys()
+            .find(|&&tid| tid as usize == stream_index)
+            .copied()
+            .ok_or_else(|| Error::format(format!("Stream {} not found", stream_index)))?;
+
+        // Collect track metadata before mutable borrow
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| Error::format("MP4 reader not initialized"))?;
+
+        let track = reader
+            .tracks()
+            .get(&track_id)
+            .ok_or_else(|| Error::format(format!("Track {} not found", track_id)))?;
+
+        let sample_count = track.sample_count();
+        let target_timescale = track.timescale();
+        let is_video = track.track_type().ok() == Some(TrackType::Video);
+
+        // Handle empty track
+        if sample_count == 0 {
+            return Err(Error::format("Track has no samples"));
+        }
+
+        // Collect other track metadata
+        let other_tracks_info: Vec<(u32, u32, u32, bool)> = self
+            .track_samples
+            .keys()
+            .filter(|&&tid| tid != track_id)
+            .filter_map(|&tid| {
+                reader.tracks().get(&tid).map(|t| {
+                    let sc = t.sample_count();
+                    let ts = t.timescale();
+                    let is_vid = t.track_type().ok() == Some(TrackType::Video);
+                    (tid, sc, ts, is_vid)
+                })
+            })
+            .collect();
+
+        // Now get mutable reader for actual seeking operations
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| Error::format("MP4 reader not initialized"))?;
+
+        // The timestamp is in the track's timescale units (from StreamInfo.time_base)
+        // Binary search to find the sample closest to the target timestamp
+        let target_sample_id = Self::binary_search_sample_by_time(
+            reader,
+            track_id,
+            sample_count,
+            timestamp as u64,
+        )?;
+
+        // Now search backwards from target_sample_id to find the nearest sync sample (keyframe)
+        let sync_sample_id = Self::find_nearest_sync_sample(
+            reader,
+            track_id,
+            target_sample_id,
+            !is_video, // is_audio = !is_video for this purpose
+        )?;
+
+        // Get the start_time of the sync sample we're seeking to
+        let sync_sample = reader
+            .read_sample(track_id, sync_sample_id)
+            .map_err(|e| Error::format(format!("Failed to read sync sample: {}", e)))?
+            .ok_or_else(|| Error::format("Sync sample not found"))?;
+
+        let sync_time = sync_sample.start_time;
+
+        // Update the sample position for the target track
+        if let Some(sample_idx) = self.track_samples.get_mut(&track_id) {
+            *sample_idx = sync_sample_id;
+        }
+
+        // Get mutable reader again for other tracks
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| Error::format("MP4 reader not initialized"))?;
+
+        // Update other tracks to maintain synchronization
+        for (other_track_id, other_sample_count, other_timescale, other_is_video) in other_tracks_info {
+            if other_sample_count == 0 {
+                continue;
+            }
+
+            // Convert sync_time from target track's timescale to other track's timescale
+            let converted_time = if target_timescale == other_timescale {
+                sync_time
+            } else {
+                (sync_time as u128 * other_timescale as u128 / target_timescale as u128) as u64
+            };
+
+            // Find the closest sample in the other track
+            let other_sample_id = Self::binary_search_sample_by_time(
+                reader,
+                other_track_id,
+                other_sample_count,
+                converted_time,
+            )?;
+
+            // For video tracks, seek to keyframe; for audio, exact position is fine
+            let final_sample_id = if other_is_video {
+                Self::find_nearest_sync_sample(reader, other_track_id, other_sample_id, false)?
+            } else {
+                other_sample_id
+            };
+
+            if let Some(sample_idx) = self.track_samples.get_mut(&other_track_id) {
+                *sample_idx = final_sample_id;
+            }
+        }
+
+        Ok(())
     }
 
     fn close(&mut self) -> Result<()> {

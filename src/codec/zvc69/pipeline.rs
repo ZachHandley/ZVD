@@ -1181,6 +1181,380 @@ impl SyncDecoder {
 }
 
 // ============================================================================
+// CUDA Stream-Aware Encoder
+// ============================================================================
+
+use super::tensorrt::{CudaStreamManager, CudaStreamStats, StreamRole, StreamState};
+
+/// A CUDA stream-aware encoder that overlaps compute and memory transfers
+///
+/// This encoder uses triple-buffered CUDA streams to maximize GPU utilization:
+/// - Stream 0 (Compute): Neural network inference on current frame
+/// - Stream 1 (H2D): Uploading next frame to GPU
+/// - Stream 2 (D2H): Downloading previous results from GPU
+///
+/// ## Usage
+///
+/// ```rust,ignore
+/// use zvd::codec::zvc69::pipeline::StreamAwareEncoder;
+/// use zvd::codec::zvc69::ZVC69Config;
+///
+/// let mut encoder = StreamAwareEncoder::new(ZVC69Config::default())?;
+///
+/// // Submit frames - overlapped execution happens automatically
+/// for (seq, frame) in frames.enumerate() {
+///     encoder.submit_frame(frame, seq as u64)?;
+///
+///     // Check for completed results
+///     while let Some(result) = encoder.poll_result()? {
+///         process_result(result);
+///     }
+/// }
+///
+/// // Flush remaining
+/// let remaining = encoder.flush()?;
+/// ```
+pub struct StreamAwareEncoder {
+    /// Inner synchronous encoder
+    encoder: ZVC69Encoder,
+    /// CUDA stream manager for overlapped execution
+    stream_manager: CudaStreamManager,
+    /// Frames queued for upload (H2D pending)
+    upload_queue: VecDeque<(VideoFrame, u64, Instant)>,
+    /// Frames queued for inference (compute pending)
+    compute_queue: VecDeque<(VideoFrame, u64, Instant)>,
+    /// Frames queued for download (D2H pending)
+    download_queue: VecDeque<(u64, Instant)>,
+    /// Completed encoded frames
+    output_queue: VecDeque<EncodedFrame>,
+    /// Statistics
+    stats: PipelineStats,
+    /// Latency tracker
+    latency_tracker: LatencyTracker,
+    /// Start time
+    start_time: Instant,
+    /// Sequence counter
+    sequence: u64,
+    /// Maximum pipeline depth
+    max_pipeline_depth: usize,
+}
+
+impl StreamAwareEncoder {
+    /// Create a new stream-aware encoder
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - ZVC69 encoder configuration
+    ///
+    /// # Returns
+    ///
+    /// A new `StreamAwareEncoder` instance or an error
+    pub fn new(config: ZVC69Config) -> Result<Self, ZVC69Error> {
+        let encoder = ZVC69Encoder::new(config).map_err(|e| ZVC69Error::Io(e.to_string()))?;
+        let stream_manager = CudaStreamManager::triple_buffered()?;
+
+        Ok(StreamAwareEncoder {
+            encoder,
+            stream_manager,
+            upload_queue: VecDeque::with_capacity(4),
+            compute_queue: VecDeque::with_capacity(4),
+            download_queue: VecDeque::with_capacity(4),
+            output_queue: VecDeque::with_capacity(8),
+            stats: PipelineStats::new(),
+            latency_tracker: LatencyTracker::new(1000),
+            start_time: Instant::now(),
+            sequence: 0,
+            max_pipeline_depth: 3, // Triple buffered
+        })
+    }
+
+    /// Create with custom stream configuration
+    pub fn with_streams(
+        config: ZVC69Config,
+        num_streams: usize,
+    ) -> Result<Self, ZVC69Error> {
+        let encoder = ZVC69Encoder::new(config).map_err(|e| ZVC69Error::Io(e.to_string()))?;
+        let stream_manager = CudaStreamManager::new(num_streams)?;
+        let max_pipeline_depth = num_streams;
+
+        Ok(StreamAwareEncoder {
+            encoder,
+            stream_manager,
+            upload_queue: VecDeque::with_capacity(max_pipeline_depth + 1),
+            compute_queue: VecDeque::with_capacity(max_pipeline_depth + 1),
+            download_queue: VecDeque::with_capacity(max_pipeline_depth + 1),
+            output_queue: VecDeque::with_capacity(max_pipeline_depth * 2),
+            stats: PipelineStats::new(),
+            latency_tracker: LatencyTracker::new(1000),
+            start_time: Instant::now(),
+            sequence: 0,
+            max_pipeline_depth,
+        })
+    }
+
+    /// Check if CUDA streams are available
+    pub fn is_cuda_available(&self) -> bool {
+        self.stream_manager.is_cuda_available()
+    }
+
+    /// Get current pipeline depth (frames in flight)
+    pub fn pipeline_depth(&self) -> usize {
+        self.upload_queue.len() + self.compute_queue.len() + self.download_queue.len()
+    }
+
+    /// Check if the pipeline can accept more frames
+    pub fn can_accept(&self) -> bool {
+        self.pipeline_depth() < self.max_pipeline_depth
+    }
+
+    /// Advance the pipeline state
+    ///
+    /// This moves frames through the pipeline stages:
+    /// 1. Complete any finished D2H transfers (download -> output)
+    /// 2. Start D2H for completed compute operations (compute -> download)
+    /// 3. Start compute for completed H2D transfers (upload -> compute)
+    fn advance(&mut self) -> Result<(), ZVC69Error> {
+        // 1. Check D2H stream for completed downloads
+        if self.stream_manager.is_role_ready(StreamRole::DeviceToHost) {
+            if let Some((sequence, start_time)) = self.download_queue.pop_front() {
+                self.stream_manager
+                    .synchronize_role(StreamRole::DeviceToHost)?;
+
+                // Receive the encoded packet
+                match self.encoder.receive_packet() {
+                    Ok(packet) => {
+                        let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                        self.latency_tracker.record(latency_ms);
+                        self.stats.frames_out += 1;
+                        self.stats.total_bytes += packet.data.len() as u64;
+
+                        let encoded = EncodedFrame::from_packet(&packet, sequence, latency_ms);
+                        self.output_queue.push_back(encoded);
+                    }
+                    Err(Error::TryAgain) => {
+                        // No packet ready yet, re-queue
+                        self.download_queue.push_front((sequence, start_time));
+                    }
+                    Err(e) => {
+                        return Err(ZVC69Error::Io(format!("Packet receive error: {}", e)));
+                    }
+                }
+            }
+        }
+
+        // 2. Check compute stream - if done and D2H is free, start download
+        if self.stream_manager.is_role_ready(StreamRole::Compute)
+            && self.download_queue.is_empty()
+        {
+            if let Some((frame, sequence, start_time)) = self.compute_queue.pop_front() {
+                self.stream_manager.synchronize_role(StreamRole::Compute)?;
+
+                // The frame has been encoded, queue for D2H
+                self.download_queue.push_back((sequence, start_time));
+                self.stream_manager.begin_d2h_transfer(sequence)?;
+            }
+        }
+
+        // 3. Check H2D stream - if done and compute is free, start inference
+        if self.stream_manager.is_role_ready(StreamRole::HostToDevice)
+            && self.compute_queue.is_empty()
+        {
+            if let Some((frame, sequence, start_time)) = self.upload_queue.pop_front() {
+                self.stream_manager
+                    .synchronize_role(StreamRole::HostToDevice)?;
+
+                // Send frame to encoder for inference
+                self.encoder
+                    .send_frame(&Frame::Video(frame.clone()))
+                    .map_err(|e| ZVC69Error::Io(e.to_string()))?;
+
+                // Queue for compute tracking
+                self.compute_queue.push_back((frame, sequence, start_time));
+                self.stream_manager.begin_compute(sequence)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Submit a frame for encoding
+    ///
+    /// If the pipeline is full, this will wait for space.
+    ///
+    /// # Arguments
+    ///
+    /// * `frame` - The video frame to encode
+    ///
+    /// # Returns
+    ///
+    /// The sequence number assigned to this frame
+    pub fn submit_frame(&mut self, frame: VideoFrame) -> Result<u64, ZVC69Error> {
+        // Advance pipeline first
+        self.advance()?;
+
+        // If H2D slot is busy, sync and wait
+        if !self.stream_manager.is_role_ready(StreamRole::HostToDevice) {
+            self.stream_manager
+                .synchronize_role(StreamRole::HostToDevice)?;
+        }
+
+        let sequence = self.sequence;
+        self.sequence += 1;
+        self.stats.frames_in += 1;
+
+        // Queue for H2D upload
+        let start_time = Instant::now();
+        self.upload_queue.push_back((frame, sequence, start_time));
+        self.stream_manager.begin_h2d_transfer(sequence)?;
+
+        // Advance again to potentially start processing
+        self.advance()?;
+
+        Ok(sequence)
+    }
+
+    /// Submit a frame with explicit sequence number
+    pub fn submit_frame_with_seq(
+        &mut self,
+        frame: VideoFrame,
+        sequence: u64,
+    ) -> Result<(), ZVC69Error> {
+        // Advance pipeline first
+        self.advance()?;
+
+        // If H2D slot is busy, sync and wait
+        if !self.stream_manager.is_role_ready(StreamRole::HostToDevice) {
+            self.stream_manager
+                .synchronize_role(StreamRole::HostToDevice)?;
+        }
+
+        self.stats.frames_in += 1;
+
+        // Queue for H2D upload
+        let start_time = Instant::now();
+        self.upload_queue.push_back((frame, sequence, start_time));
+        self.stream_manager.begin_h2d_transfer(sequence)?;
+
+        // Advance again to potentially start processing
+        self.advance()?;
+
+        Ok(())
+    }
+
+    /// Poll for a completed encoded frame (non-blocking)
+    ///
+    /// # Returns
+    ///
+    /// A completed encoded frame if available, or None
+    pub fn poll_result(&mut self) -> Result<Option<EncodedFrame>, ZVC69Error> {
+        self.advance()?;
+        Ok(self.output_queue.pop_front())
+    }
+
+    /// Wait for all in-flight frames to complete
+    ///
+    /// # Returns
+    ///
+    /// All completed encoded frames
+    pub fn flush(&mut self) -> Result<Vec<EncodedFrame>, ZVC69Error> {
+        // Keep advancing until all queues are empty
+        while !self.upload_queue.is_empty()
+            || !self.compute_queue.is_empty()
+            || !self.download_queue.is_empty()
+        {
+            // Force synchronization of all streams
+            self.stream_manager.synchronize_all()?;
+
+            // Process any completed stages
+            // D2H complete -> output
+            if let Some((sequence, start_time)) = self.download_queue.pop_front() {
+                match self.encoder.receive_packet() {
+                    Ok(packet) => {
+                        let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                        self.latency_tracker.record(latency_ms);
+                        self.stats.frames_out += 1;
+                        self.stats.total_bytes += packet.data.len() as u64;
+
+                        let encoded = EncodedFrame::from_packet(&packet, sequence, latency_ms);
+                        self.output_queue.push_back(encoded);
+                    }
+                    Err(Error::TryAgain) => {
+                        // Push back and try again
+                        self.download_queue.push_front((sequence, start_time));
+                    }
+                    Err(e) => {
+                        return Err(ZVC69Error::Io(format!("Flush receive error: {}", e)));
+                    }
+                }
+            }
+
+            // Compute complete -> D2H
+            if let Some((_frame, sequence, start_time)) = self.compute_queue.pop_front() {
+                self.download_queue.push_back((sequence, start_time));
+            }
+
+            // H2D complete -> Compute
+            if let Some((frame, sequence, start_time)) = self.upload_queue.pop_front() {
+                self.encoder
+                    .send_frame(&Frame::Video(frame))
+                    .map_err(|e| ZVC69Error::Io(e.to_string()))?;
+                self.compute_queue.push_back((VideoFrame::default(), sequence, start_time));
+            }
+        }
+
+        // Collect all output
+        let mut results = Vec::with_capacity(self.output_queue.len());
+        while let Some(encoded) = self.output_queue.pop_front() {
+            results.push(encoded);
+        }
+
+        Ok(results)
+    }
+
+    /// Check if there are any completed results waiting
+    pub fn has_output(&self) -> bool {
+        !self.output_queue.is_empty()
+    }
+
+    /// Get current statistics
+    pub fn stats(&self) -> PipelineStats {
+        let mut stats = self.stats.clone();
+        let elapsed = self.start_time.elapsed().as_secs_f64() * 1000.0;
+        stats.total_time_ms = elapsed;
+
+        if elapsed > 0.0 {
+            stats.throughput_fps = stats.frames_out as f64 / (elapsed / 1000.0);
+        }
+
+        stats.avg_latency_ms = self.latency_tracker.average();
+        stats.min_latency_ms = self.latency_tracker.min;
+        stats.max_latency_ms = self.latency_tracker.max;
+        stats.p95_latency_ms = self.latency_tracker.percentile(95.0);
+        stats.p99_latency_ms = self.latency_tracker.percentile(99.0);
+
+        stats
+    }
+
+    /// Get CUDA stream statistics
+    pub fn stream_stats(&self) -> CudaStreamStats {
+        self.stream_manager.stats()
+    }
+
+    /// Reset the encoder and streams
+    pub fn reset(&mut self) {
+        self.stream_manager.reset();
+        self.upload_queue.clear();
+        self.compute_queue.clear();
+        self.download_queue.clear();
+        self.output_queue.clear();
+        self.sequence = 0;
+        self.stats = PipelineStats::new();
+        self.latency_tracker = LatencyTracker::new(1000);
+        self.start_time = Instant::now();
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

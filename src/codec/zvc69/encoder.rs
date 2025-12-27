@@ -40,6 +40,7 @@
 //! ```
 
 use std::path::Path;
+use std::sync::Arc;
 
 use super::bitstream::FrameType as BitstreamFrameType;
 use super::config::{Preset, Quality, RateControlMode, ZVC69Config};
@@ -47,8 +48,10 @@ use super::entropy::{
     EntropyCoder, FactorizedPrior, GaussianConditional, DEFAULT_MAX_SYMBOL, DEFAULT_MIN_SYMBOL,
 };
 use super::error::ZVC69Error;
+use super::memory::{BitstreamArena, BufferShape, FramePool, PoolConfig, PooledBuffer};
 use super::model::{image_to_tensor, tensor_to_image, NeuralModel, NeuralModelConfig};
 use super::motion::{encode_motion, MotionConfig, MotionEstimator, MotionField};
+use super::profiler::{stages, Profiler, TimingFrameType};
 use super::quantize::{
     clamp_quantized, dequantize_tensor, flatten_tensor_chw, flatten_tensor_f32, quality_to_scale,
     quantize_scaled,
@@ -57,6 +60,7 @@ use super::residual::{
     should_skip_residual, CompressedResidual, Residual, ResidualConfig, ResidualDecoder,
     ResidualEncoder,
 };
+use super::tensorrt::TensorRTConfig;
 use super::warp::{FrameWarper, WarpConfig};
 use crate::codec::{Encoder, Frame, PictureType, VideoFrame};
 use crate::error::{Error, Result};
@@ -451,6 +455,24 @@ pub struct ZVC69Encoder {
 
     /// Force next frame to be keyframe
     force_next_keyframe: bool,
+
+    /// Optional TensorRT configuration for accelerated inference
+    tensorrt_config: Option<TensorRTConfig>,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Memory Pooling
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Frame buffer pool for zero-allocation encoding
+    frame_pool: Arc<FramePool>,
+
+    /// Bitstream arena for temporary allocations during encoding
+    bitstream_arena: BitstreamArena,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Performance Profiling
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Optional profiler for performance analysis (zero-cost when disabled)
+    profiler: Option<Profiler>,
 }
 
 impl ZVC69Encoder {
@@ -490,6 +512,15 @@ impl ZVC69Encoder {
         let residual_encoder = ResidualEncoder::new(residual_config.clone());
         let residual_decoder = ResidualDecoder::new(residual_config);
 
+        // Initialize frame buffer pool for zero-allocation encoding
+        let pool_config = PoolConfig::for_resolution(config.width, config.height);
+        let frame_pool = FramePool::new(pool_config);
+        // Pre-warm with 4 buffers for steady-state zero-allocation encoding
+        frame_pool.prewarm(4);
+
+        // Initialize bitstream arena for temporary allocations
+        let bitstream_arena = BitstreamArena::for_resolution(config.width, config.height);
+
         Ok(ZVC69Encoder {
             last_ref: ReferenceFrame::new(config.width, config.height),
             golden_ref: ReferenceFrame::new(config.width, config.height),
@@ -518,6 +549,10 @@ impl ZVC69Encoder {
             entropy_coder: EntropyCoder::new(),
             pframe_skip_threshold: DEFAULT_PFRAME_SKIP_THRESHOLD,
             force_next_keyframe: false,
+            tensorrt_config: None,
+            frame_pool,
+            bitstream_arena,
+            profiler: None,
         })
     }
 
@@ -527,21 +562,172 @@ impl ZVC69Encoder {
         Self::new(config)
     }
 
+    /// Create a new encoder with TensorRT acceleration enabled
+    ///
+    /// This constructor enables TensorRT execution provider for accelerated
+    /// neural network inference. TensorRT provides significant speedups on
+    /// NVIDIA GPUs through kernel fusion, precision calibration, and other
+    /// optimizations.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Encoder configuration
+    /// * `tensorrt_config` - TensorRT configuration for inference optimization
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::{ZVC69Encoder, ZVC69Config};
+    /// use zvd::codec::zvc69::tensorrt::TensorRTConfig;
+    ///
+    /// let config = ZVC69Config::new(1920, 1080);
+    /// let trt_config = TensorRTConfig::fast(); // FP16 for speed
+    /// let encoder = ZVC69Encoder::with_tensorrt(config, trt_config)?;
+    /// ```
+    pub fn with_tensorrt(config: ZVC69Config, tensorrt_config: TensorRTConfig) -> Result<Self> {
+        let mut encoder = Self::new(config)?;
+        encoder.tensorrt_config = Some(tensorrt_config);
+        Ok(encoder)
+    }
+
+    /// Create a new encoder with TensorRT acceleration using default fast configuration
+    ///
+    /// This is a convenience constructor that uses `TensorRTConfig::fast()` which
+    /// enables FP16 mode for maximum real-time performance.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Encoder configuration
+    /// * `device_id` - CUDA device ID (0 for first GPU)
+    pub fn with_tensorrt_fast(config: ZVC69Config, device_id: usize) -> Result<Self> {
+        let trt_config = TensorRTConfig::fast().with_device(device_id);
+        Self::with_tensorrt(config, trt_config)
+    }
+
+    /// Create a new encoder with TensorRT acceleration optimized for quality
+    ///
+    /// This uses `TensorRTConfig::quality()` which uses FP32 precision for
+    /// maximum visual quality at the cost of some performance.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Encoder configuration
+    /// * `device_id` - CUDA device ID (0 for first GPU)
+    pub fn with_tensorrt_quality(config: ZVC69Config, device_id: usize) -> Result<Self> {
+        let trt_config = TensorRTConfig::quality().with_device(device_id);
+        Self::with_tensorrt(config, trt_config)
+    }
+
+    /// Set TensorRT configuration after encoder creation
+    ///
+    /// Note: This should be called before loading the model to take effect.
+    pub fn set_tensorrt_config(&mut self, tensorrt_config: TensorRTConfig) {
+        self.tensorrt_config = Some(tensorrt_config);
+    }
+
+    /// Get the current TensorRT configuration
+    pub fn tensorrt_config(&self) -> Option<&TensorRTConfig> {
+        self.tensorrt_config.as_ref()
+    }
+
+    /// Check if TensorRT acceleration is enabled
+    pub fn is_tensorrt_enabled(&self) -> bool {
+        self.tensorrt_config.is_some()
+    }
+
+    /// Get the frame buffer pool
+    ///
+    /// Returns a reference to the internal frame pool for monitoring or
+    /// external buffer management.
+    pub fn frame_pool(&self) -> &Arc<FramePool> {
+        &self.frame_pool
+    }
+
+    /// Acquire a frame buffer from the pool
+    ///
+    /// Returns a pooled buffer that will automatically return to the pool on drop.
+    pub fn acquire_frame_buffer(&self) -> PooledBuffer {
+        self.frame_pool.acquire()
+    }
+
+    /// Acquire a latent buffer from the pool
+    ///
+    /// Returns a pooled buffer sized for latent representations.
+    pub fn acquire_latent_buffer(&self) -> PooledBuffer {
+        self.frame_pool.acquire_latent()
+    }
+
+    /// Acquire a buffer with specific shape from the pool
+    pub fn acquire_buffer_with_shape(&self, shape: BufferShape) -> PooledBuffer {
+        self.frame_pool.acquire_shape(shape)
+    }
+
+    /// Reset the bitstream arena for the next frame
+    ///
+    /// Call this at the start of each frame to reuse arena memory
+    /// without deallocation.
+    pub fn reset_arena(&mut self) {
+        self.bitstream_arena.reset();
+    }
+
+    /// Get memory pool statistics for monitoring
+    pub fn pool_stats(&self) -> super::memory::PoolStats {
+        self.frame_pool.stats()
+    }
+
     /// Load neural model from a directory
+    ///
+    /// If TensorRT configuration is set on the encoder, it will be used
+    /// to configure the model for TensorRT-accelerated inference.
     #[cfg(feature = "zvc69")]
     pub fn load_model(&mut self, model_dir: &Path) -> Result<()> {
-        let model = NeuralModel::load(model_dir).map_err(|e| Error::codec(e.to_string()))?;
-        self.model = Some(model);
+        // If TensorRT is configured, use it for model loading
+        if let Some(ref trt_config) = self.tensorrt_config {
+            let model_config = NeuralModelConfig::default()
+                .with_tensorrt_config(trt_config.clone());
+            let model = NeuralModel::load_with_config(model_dir, model_config)
+                .map_err(|e| Error::codec(e.to_string()))?;
+            self.model = Some(model);
+        } else {
+            let model = NeuralModel::load(model_dir).map_err(|e| Error::codec(e.to_string()))?;
+            self.model = Some(model);
+        }
         Ok(())
     }
 
     /// Load neural model with custom configuration
+    ///
+    /// Note: If TensorRT configuration is set on the encoder, it will override
+    /// the TensorRT settings in the provided model_config.
     #[cfg(feature = "zvc69")]
     pub fn load_model_with_config(
         &mut self,
         model_dir: &Path,
-        model_config: NeuralModelConfig,
+        mut model_config: NeuralModelConfig,
     ) -> Result<()> {
+        // If TensorRT is configured on encoder, apply it to model config
+        if let Some(ref trt_config) = self.tensorrt_config {
+            model_config = model_config.with_tensorrt_config(trt_config.clone());
+        }
+        let model = NeuralModel::load_with_config(model_dir, model_config)
+            .map_err(|e| Error::codec(e.to_string()))?;
+        self.model = Some(model);
+        Ok(())
+    }
+
+    /// Load neural model with TensorRT acceleration
+    ///
+    /// Convenience method that loads the model with TensorRT enabled using
+    /// the specified configuration.
+    #[cfg(feature = "zvc69")]
+    pub fn load_model_with_tensorrt(
+        &mut self,
+        model_dir: &Path,
+        tensorrt_config: TensorRTConfig,
+    ) -> Result<()> {
+        self.tensorrt_config = Some(tensorrt_config.clone());
+        let model_config = NeuralModelConfig::default()
+            .with_tensorrt_config(tensorrt_config);
         let model = NeuralModel::load_with_config(model_dir, model_config)
             .map_err(|e| Error::codec(e.to_string()))?;
         self.model = Some(model);
@@ -622,6 +808,78 @@ impl ZVC69Encoder {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Profiling API
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Enable performance profiling
+    ///
+    /// When enabled, the encoder will collect timing data for each pipeline stage.
+    /// Profiling has zero cost when disabled (the default state).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut encoder = ZVC69Encoder::new(config)?;
+    /// encoder.enable_profiling();
+    ///
+    /// // ... encode frames ...
+    ///
+    /// println!("{}", encoder.profiler_report());
+    /// ```
+    pub fn enable_profiling(&mut self) {
+        if self.profiler.is_none() {
+            self.profiler = Some(Profiler::enabled());
+        } else if let Some(ref mut p) = self.profiler {
+            p.set_enabled(true);
+        }
+    }
+
+    /// Disable performance profiling
+    ///
+    /// Disabling profiling clears any collected timing data.
+    pub fn disable_profiling(&mut self) {
+        if let Some(ref mut p) = self.profiler {
+            p.set_enabled(false);
+        }
+    }
+
+    /// Check if profiling is enabled
+    pub fn is_profiling_enabled(&self) -> bool {
+        self.profiler.as_ref().map_or(false, |p| p.is_enabled())
+    }
+
+    /// Get the profiler report as a formatted string
+    ///
+    /// Returns a detailed report of timing statistics for each encoder stage.
+    /// Returns an empty message if profiling is not enabled or no data has been collected.
+    pub fn profiler_report(&self) -> String {
+        self.profiler
+            .as_ref()
+            .map_or_else(|| "Profiling not enabled.".to_string(), |p| p.report())
+    }
+
+    /// Get a reference to the profiler (if enabled)
+    ///
+    /// This allows access to detailed profiling statistics and frame-level timing data.
+    pub fn profiler(&self) -> Option<&Profiler> {
+        self.profiler.as_ref()
+    }
+
+    /// Get a mutable reference to the profiler (if enabled)
+    pub fn profiler_mut(&mut self) -> Option<&mut Profiler> {
+        self.profiler.as_mut()
+    }
+
+    /// Reset profiler statistics
+    ///
+    /// Clears all collected timing data while keeping profiling enabled.
+    pub fn reset_profiler(&mut self) {
+        if let Some(ref mut p) = self.profiler {
+            p.reset();
+        }
+    }
+
     /// Determine the frame type for the next frame
     ///
     /// Frame type decision follows this priority:
@@ -670,6 +928,22 @@ impl ZVC69Encoder {
 
     /// Encode a video frame
     fn encode_video_frame(&mut self, frame: &VideoFrame) -> Result<()> {
+        // Reset arena at start of each frame for zero-allocation steady state
+        self.bitstream_arena.reset();
+
+        // Determine frame type first (needed for profiler)
+        let frame_type = self.determine_frame_type();
+
+        // Begin profiler frame timing
+        let profiler_frame_type = match frame_type {
+            FrameType::I => TimingFrameType::I,
+            FrameType::P => TimingFrameType::P,
+            FrameType::B => TimingFrameType::B,
+        };
+        if let Some(ref mut p) = self.profiler {
+            p.begin_frame(self.frame_count, profiler_frame_type);
+        }
+
         // Validate frame dimensions
         if frame.width != self.config.width || frame.height != self.config.height {
             return Err(Error::codec(
@@ -690,9 +964,6 @@ impl ZVC69Encoder {
                 frame.format
             )));
         }
-
-        // Determine frame type
-        let frame_type = self.determine_frame_type();
 
         // Encode based on frame type
         let encoded_frame = match frame_type {
@@ -731,6 +1002,15 @@ impl ZVC69Encoder {
             // has already updated it with the reconstructed frame for P-frames to use
         } else {
             self.gop_frame_count += 1;
+        }
+
+        // End profiler frame timing
+        if let Some(ref mut p) = self.profiler {
+            p.end_frame(
+                encoded_frame.size_bits / 8,
+                self.config.width as usize,
+                self.config.height as usize,
+            );
         }
 
         self.frame_count += 1;
@@ -871,13 +1151,31 @@ impl ZVC69Encoder {
         let mut bitstream = Vec::with_capacity(frame.width as usize * frame.height as usize);
 
         // Write ZVC69 frame header
-        self.write_frame_header(&mut bitstream, FrameType::I)?;
+        if let Some(ref mut p) = self.profiler {
+            p.time_result(stages::BITSTREAM_WRITE, || {
+                self.write_frame_header(&mut bitstream, FrameType::I)
+            })?;
+        } else {
+            self.write_frame_header(&mut bitstream, FrameType::I)?;
+        }
 
         // Write placeholder frame data
-        self.write_placeholder_frame_data(&mut bitstream, frame)?;
+        if let Some(ref mut p) = self.profiler {
+            p.time_result(stages::BITSTREAM_WRITE, || {
+                self.write_placeholder_frame_data(&mut bitstream, frame)
+            })?;
+        } else {
+            self.write_placeholder_frame_data(&mut bitstream, frame)?;
+        }
 
         // Convert frame to tensor for reference buffer
-        let frame_tensor = image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))?;
+        let frame_tensor = if let Some(ref mut p) = self.profiler {
+            p.time(stages::COLOR_CONVERT, || {
+                image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))
+            })?
+        } else {
+            image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))?
+        };
 
         // Update legacy reference frame
         self.update_reference_frame(frame)?;
@@ -936,23 +1234,54 @@ impl ZVC69Encoder {
         let reference_tensor = self.get_reference_tensor()?;
 
         // Step 2: Convert current frame to tensor [1, 3, H, W]
-        let current_tensor = image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))?;
+        let current_tensor = if let Some(ref mut p) = self.profiler {
+            p.time(stages::COLOR_CONVERT, || {
+                image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))
+            })?
+        } else {
+            image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))?
+        };
 
         // Step 3: Estimate motion (current <- reference)
         // Motion vectors indicate where pixels in current frame come from in reference
-        let motion = self
-            .motion_estimator
-            .estimate_placeholder(&current_tensor, &reference_tensor);
+        let motion = if let Some(ref mut p) = self.profiler {
+            p.time(stages::MOTION_ESTIMATION, || {
+                self.motion_estimator
+                    .estimate_placeholder(&current_tensor, &reference_tensor)
+            })
+        } else {
+            self.motion_estimator
+                .estimate_placeholder(&current_tensor, &reference_tensor)
+        };
 
         // Step 4: Encode motion vectors (quantize + entropy code)
-        let motion_bytes = encode_motion(&motion, &mut self.entropy_coder)
-            .map_err(|e| Error::codec(e.to_string()))?;
+        let motion_bytes = if let Some(ref mut p) = self.profiler {
+            p.time_result(stages::MOTION_CODING, || {
+                encode_motion(&motion, &mut self.entropy_coder)
+                    .map_err(|e| Error::codec(e.to_string()))
+            })?
+        } else {
+            encode_motion(&motion, &mut self.entropy_coder)
+                .map_err(|e| Error::codec(e.to_string()))?
+        };
 
         // Step 5: Warp reference frame using motion
-        let predicted = self.frame_warper.backward_warp(&reference_tensor, &motion);
+        let predicted = if let Some(ref mut p) = self.profiler {
+            p.time(stages::FRAME_WARP, || {
+                self.frame_warper.backward_warp(&reference_tensor, &motion)
+            })
+        } else {
+            self.frame_warper.backward_warp(&reference_tensor, &motion)
+        };
 
         // Step 6: Compute residual (current - predicted)
-        let residual = Residual::compute(&current_tensor, &predicted);
+        let residual = if let Some(ref mut p) = self.profiler {
+            p.time(stages::RESIDUAL_COMPUTE, || {
+                Residual::compute(&current_tensor, &predicted)
+            })
+        } else {
+            Residual::compute(&current_tensor, &predicted)
+        };
 
         // Step 7: Check skip mode (low residual energy)
         if should_skip_residual(&residual, self.pframe_skip_threshold) {
@@ -967,21 +1296,46 @@ impl ZVC69Encoder {
         }
 
         // Step 8: Encode residual
-        let compressed_residual = self.residual_encoder.encode_placeholder(&residual);
-        let residual_bytes = compressed_residual
-            .to_bytes(&mut self.entropy_coder)
-            .map_err(|e| Error::codec(e.to_string()))?;
+        let compressed_residual = if let Some(ref mut p) = self.profiler {
+            p.time(stages::RESIDUAL_ENCODE, || {
+                self.residual_encoder.encode_placeholder(&residual)
+            })
+        } else {
+            self.residual_encoder.encode_placeholder(&residual)
+        };
+
+        let residual_bytes = if let Some(ref mut p) = self.profiler {
+            p.time_result(stages::ENTROPY_ENCODE, || {
+                compressed_residual
+                    .to_bytes(&mut self.entropy_coder)
+                    .map_err(|e| Error::codec(e.to_string()))
+            })?
+        } else {
+            compressed_residual
+                .to_bytes(&mut self.entropy_coder)
+                .map_err(|e| Error::codec(e.to_string()))?
+        };
 
         // Step 9: Reconstruct for reference (encoder-side reconstruction)
         // Decode the residual exactly as the decoder will
         // Use the tensor dimensions for output shape
         let output_height = current_tensor.dim().2;
         let output_width = current_tensor.dim().3;
-        let decoded_residual = self.residual_decoder.decode_placeholder(
-            &compressed_residual,
-            output_height,
-            output_width,
-        );
+        let decoded_residual = if let Some(ref mut p) = self.profiler {
+            p.time(stages::RESIDUAL_DECODE, || {
+                self.residual_decoder.decode_placeholder(
+                    &compressed_residual,
+                    output_height,
+                    output_width,
+                )
+            })
+        } else {
+            self.residual_decoder.decode_placeholder(
+                &compressed_residual,
+                output_height,
+                output_width,
+            )
+        };
         let reconstructed = Residual::reconstruct(&decoded_residual, &predicted);
 
         // Step 10: Update reference buffer with reconstructed frame
@@ -996,7 +1350,13 @@ impl ZVC69Encoder {
         self.last_ref.tensor = Some(reconstructed);
 
         // Step 11: Package P-frame bitstream
-        self.package_pframe(motion_bytes, residual_bytes, &motion, pts, dts)
+        if let Some(ref mut p) = self.profiler {
+            p.time_result(stages::BITSTREAM_WRITE, || {
+                self.package_pframe(motion_bytes, residual_bytes, &motion, pts, dts)
+            })
+        } else {
+            self.package_pframe(motion_bytes, residual_bytes, &motion, pts, dts)
+        }
     }
 
     /// Encode a B-frame (placeholder implementation)

@@ -36,7 +36,7 @@ impl MotionCompensator {
     /// Create a new motion compensator
     pub fn new(bit_depth: u8) -> Result<Self> {
         if bit_depth != 8 && bit_depth != 10 && bit_depth != 12 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Invalid bit depth: {}",
                 bit_depth
             )));

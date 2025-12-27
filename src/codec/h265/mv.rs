@@ -297,7 +297,7 @@ impl MergeCandidateList {
         self.candidates
             .get(index)
             .copied()
-            .ok_or_else(|| Error::InvalidData(format!("Invalid merge index: {}", index)))
+            .ok_or_else(|| Error::codec(format!("Invalid merge index: {}", index)))
     }
 
     /// Get number of candidates
@@ -345,19 +345,22 @@ fn median3(a: i16, b: i16, c: i16) -> i16 {
 /// Motion vector field for a picture
 ///
 /// Stores motion vectors for each block in the picture
+#[derive(Debug, Clone)]
 pub struct MotionVectorField {
-    /// Width in 4×4 blocks
+    /// Width in 4x4 blocks
     width_in_4x4: usize,
-    /// Height in 4×4 blocks
+    /// Height in 4x4 blocks
     height_in_4x4: usize,
     /// Motion vectors for L0
     mvs_l0: Vec<MotionVector>,
     /// Motion vectors for L1
     mvs_l1: Vec<MotionVector>,
     /// Reference indices for L0
-    ref_idx_l0: Vec<u8>,
+    ref_idx_l0: Vec<i8>,
     /// Reference indices for L1
-    ref_idx_l1: Vec<u8>,
+    ref_idx_l1: Vec<i8>,
+    /// Prediction flags per block
+    pred_flags: Vec<PredictionFlag>,
 }
 
 impl MotionVectorField {
@@ -372,43 +375,132 @@ impl MotionVectorField {
             height_in_4x4,
             mvs_l0: vec![MotionVector::zero(); num_blocks],
             mvs_l1: vec![MotionVector::zero(); num_blocks],
-            ref_idx_l0: vec![0; num_blocks],
-            ref_idx_l1: vec![0; num_blocks],
+            ref_idx_l0: vec![-1; num_blocks], // -1 indicates unavailable
+            ref_idx_l1: vec![-1; num_blocks],
+            pred_flags: vec![PredictionFlag::L0; num_blocks],
         }
     }
 
-    /// Set motion vector for a block
-    pub fn set_mv_l0(&mut self, x: usize, y: usize, mv: MotionVector, ref_idx: u8) -> Result<()> {
+    /// Get width in 4x4 blocks
+    pub fn width_in_blocks(&self) -> usize {
+        self.width_in_4x4
+    }
+
+    /// Get height in 4x4 blocks
+    pub fn height_in_blocks(&self) -> usize {
+        self.height_in_4x4
+    }
+
+    /// Set motion vector for a block (L0 only)
+    pub fn set_mv_l0(&mut self, x: usize, y: usize, mv: MotionVector, ref_idx: i8) -> Result<()> {
         let idx = self.get_index(x, y)?;
         self.mvs_l0[idx] = mv;
         self.ref_idx_l0[idx] = ref_idx;
+        self.pred_flags[idx] = PredictionFlag::L0;
         Ok(())
     }
 
-    /// Set motion vector for L1
-    pub fn set_mv_l1(&mut self, x: usize, y: usize, mv: MotionVector, ref_idx: u8) -> Result<()> {
+    /// Set motion vector for L1 only
+    pub fn set_mv_l1(&mut self, x: usize, y: usize, mv: MotionVector, ref_idx: i8) -> Result<()> {
         let idx = self.get_index(x, y)?;
         self.mvs_l1[idx] = mv;
         self.ref_idx_l1[idx] = ref_idx;
+        self.pred_flags[idx] = PredictionFlag::L1;
+        Ok(())
+    }
+
+    /// Set motion vectors for bi-prediction
+    pub fn set_mv_bi(
+        &mut self,
+        x: usize,
+        y: usize,
+        mv_l0: MotionVector,
+        mv_l1: MotionVector,
+        ref_idx_l0: i8,
+        ref_idx_l1: i8,
+    ) -> Result<()> {
+        let idx = self.get_index(x, y)?;
+        self.mvs_l0[idx] = mv_l0;
+        self.mvs_l1[idx] = mv_l1;
+        self.ref_idx_l0[idx] = ref_idx_l0;
+        self.ref_idx_l1[idx] = ref_idx_l1;
+        self.pred_flags[idx] = PredictionFlag::Bi;
         Ok(())
     }
 
     /// Get motion vector for L0
-    pub fn get_mv_l0(&self, x: usize, y: usize) -> Option<(MotionVector, u8)> {
+    pub fn get_mv_l0(&self, x: usize, y: usize) -> Option<(MotionVector, i8)> {
         let idx = self.get_index(x, y).ok()?;
-        Some((self.mvs_l0[idx], self.ref_idx_l0[idx]))
+        let ref_idx = self.ref_idx_l0[idx];
+        if ref_idx < 0 {
+            return None; // Not available
+        }
+        Some((self.mvs_l0[idx], ref_idx))
     }
 
     /// Get motion vector for L1
-    pub fn get_mv_l1(&self, x: usize, y: usize) -> Option<(MotionVector, u8)> {
+    pub fn get_mv_l1(&self, x: usize, y: usize) -> Option<(MotionVector, i8)> {
         let idx = self.get_index(x, y).ok()?;
-        Some((self.mvs_l1[idx], self.ref_idx_l1[idx]))
+        let ref_idx = self.ref_idx_l1[idx];
+        if ref_idx < 0 {
+            return None; // Not available
+        }
+        Some((self.mvs_l1[idx], ref_idx))
+    }
+
+    /// Get prediction flag for a block
+    pub fn get_pred_flag(&self, x: usize, y: usize) -> Option<PredictionFlag> {
+        let idx = self.get_index(x, y).ok()?;
+        Some(self.pred_flags[idx])
+    }
+
+    /// Check if a block has valid motion information
+    pub fn is_inter(&self, x: usize, y: usize) -> bool {
+        if let Ok(idx) = self.get_index(x, y) {
+            self.ref_idx_l0[idx] >= 0 || self.ref_idx_l1[idx] >= 0
+        } else {
+            false
+        }
+    }
+
+    /// Get merge candidate from a block position
+    ///
+    /// Returns None if the block is not inter-coded or out of bounds
+    pub fn get_merge_candidate(&self, x: usize, y: usize) -> Option<MergeCandidate> {
+        let idx = self.get_index(x, y).ok()?;
+
+        let ref_l0 = self.ref_idx_l0[idx];
+        let ref_l1 = self.ref_idx_l1[idx];
+
+        // Block must be inter-coded (at least one valid reference)
+        if ref_l0 < 0 && ref_l1 < 0 {
+            return None;
+        }
+
+        let pred_flag = self.pred_flags[idx];
+        let mv_l0 = self.mvs_l0[idx];
+        let mv_l1 = self.mvs_l1[idx];
+
+        Some(MergeCandidate::new(
+            mv_l0,
+            mv_l1,
+            ref_l0.max(0) as u8,
+            ref_l1.max(0) as u8,
+            pred_flag,
+        ))
+    }
+
+    /// Get merge candidate from pixel position (converts to 4x4 block coordinates)
+    pub fn get_merge_candidate_at_pixel(&self, px: usize, py: usize) -> Option<MergeCandidate> {
+        let block_x = px / 4;
+        let block_y = py / 4;
+        self.get_merge_candidate(block_x, block_y)
     }
 
     /// Get block index
     fn get_index(&self, x: usize, y: usize) -> Result<usize> {
         if x >= self.width_in_4x4 || y >= self.height_in_4x4 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::codec(format!(
                 "Block position out of bounds: ({}, {})",
                 x, y
             )));

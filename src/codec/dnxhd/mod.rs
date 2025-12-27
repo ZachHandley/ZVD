@@ -3,8 +3,12 @@
 //! DNxHD (Digital Nonlinear Extensible High Definition) is Avid's
 //! professional video codec for high-quality editing workflows.
 
+pub mod bitstream;
+pub mod dct;
 pub mod decoder;
 pub mod encoder;
+pub mod idct;
+pub mod tables;
 
 pub use decoder::DnxhdDecoder;
 pub use encoder::{DnxhdEncoder, DnxhdEncoderConfig};

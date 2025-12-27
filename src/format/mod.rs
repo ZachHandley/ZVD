@@ -156,7 +156,7 @@ pub fn get_format_info(name: &str) -> Option<FormatInfo> {
             extensions: vec!["y4m".to_string(), "yuv".to_string()],
             mime_types: vec!["video/x-yuv4mpeg".to_string()],
             capabilities: FormatCapabilities {
-                seekable: false,
+                seekable: true,
                 multi_stream: false,
                 timestamps: true,
                 metadata: false,

@@ -116,19 +116,29 @@ pub fn from_signed(v: i32) -> u32 {
 /// - bits 0-1: switch_bits
 /// - bits 2-4: exp_order
 /// - bits 5-7: rice_order
+///
+/// Decoder logic:
+/// - Read unary prefix (count zeros until 1)
+/// - If q <= switch_bits: Rice mode, value = (q << rice_order) | read_bits(rice_order)
+/// - If q > switch_bits: ExpGolomb mode
+///   - bits = exp_order - switch_bits + 2*q
+///   - code = read_bits(bits)
+///   - base = ((switch_bits + 1) << rice_order) - (1 << exp_order)
+///   - value = code + base
 pub fn encode_vlc_codeword(bw: &mut BitWriter, value: u32, codebook: u8) {
     let switch_bits = (codebook & 3) as u32;
     let rice_order = (codebook >> 5) as u32;
     let exp_order = ((codebook >> 2) & 7) as u32;
 
-    // Determine which mode to use based on the value
-    // Rice coding threshold: values <= (switch_bits + 1) << rice_order can use Rice
-    let rice_threshold = ((switch_bits + 1) << rice_order) as u32;
+    // Calculate the maximum value that can be encoded in Rice mode
+    // Rice mode: q in [0, switch_bits], value = (q << rice_order) | r
+    // Maximum value = ((switch_bits + 1) << rice_order) - 1
+    let rice_max = ((switch_bits + 1) << rice_order).saturating_sub(1);
 
-    if value < rice_threshold {
-        // Rice coding
+    if value <= rice_max {
+        // Rice coding mode
         let q = value >> rice_order;
-        let r = value & ((1 << rice_order) - 1);
+        let r = value & ((1u32 << rice_order) - 1);
 
         // Write q zeros followed by 1
         for _ in 0..q {
@@ -141,56 +151,53 @@ pub fn encode_vlc_codeword(bw: &mut BitWriter, value: u32, codebook: u8) {
             bw.write_bits(r, rice_order as usize);
         }
     } else {
-        // ExpGolomb coding
-        // Need to find q such that: bits = exp_order - switch_bits + 2*q
-        // And: value = code + (1 << exp_order) - ((switch_bits + 1) << rice_order)
-        // Where code is in range [0, (1 << bits) - 1]
-
-        let adj = value as i64 - ((switch_bits as i64 + 1) << rice_order) + (1i64 << exp_order);
-        if adj < 0 {
-            // Fallback to writing as Rice if calculation doesn't work
-            // This shouldn't happen with valid input
-            let q = value >> rice_order;
-            let r = value & ((1 << rice_order) - 1);
-            for _ in 0..q {
-                bw.write_bit(0);
-            }
-            bw.write_bit(1);
-            if rice_order > 0 {
-                bw.write_bits(r, rice_order as usize);
-            }
-            return;
-        }
-
-        // Find the minimum number of bits needed
-        let mut bits = exp_order as usize;
-        while (1u64 << bits) <= adj as u64 {
-            bits += 1;
-        }
-
-        // Calculate q from bits
+        // ExpGolomb coding mode
+        // We need to find q > switch_bits and compute:
         // bits = exp_order - switch_bits + 2*q
-        // q = (bits - exp_order + switch_bits) / 2
-        let q = if bits as u32 >= exp_order.saturating_sub(switch_bits) {
-            (bits as u32 + switch_bits - exp_order + 1) / 2
-        } else {
-            0
-        };
+        // base = ((switch_bits + 1) << rice_order) - (1 << exp_order)
+        // code = value - base
+        // And code must fit in `bits` bits.
 
-        // Ensure q > switch_bits (required for ExpGolomb mode)
-        let q = q.max(switch_bits + 1);
+        // Calculate base for the ExpGolomb formula
+        // Note: This can underflow if exp_order is large, which is normal
+        // The decoder computes: code + base = value
+        // So: code = value - base
+        let base = ((switch_bits + 1) << rice_order).wrapping_sub(1u32 << exp_order);
+        let code = value.wrapping_sub(base);
 
-        // Recalculate bits based on q
-        let actual_bits = (exp_order as i32 - switch_bits as i32 + (q << 1) as i32) as usize;
+        // Find the minimum q > switch_bits such that code fits in bits
+        // bits = exp_order - switch_bits + 2*q
+        // We need code < (1 << bits)
+        let mut q = switch_bits + 1;
+        loop {
+            let bits = (exp_order as i32 - switch_bits as i32 + 2 * q as i32) as u32;
+            if bits >= 32 || code < (1u32 << bits) {
+                // Write q zeros followed by 1
+                for _ in 0..q {
+                    bw.write_bit(0);
+                }
+                bw.write_bit(1);
 
-        // Write q zeros followed by 1
-        for _ in 0..q {
+                // Write the code
+                if bits > 0 {
+                    bw.write_bits(code, bits as usize);
+                }
+                return;
+            }
+            q += 1;
+            if q > 64 {
+                // Safety limit - should never happen with valid input
+                break;
+            }
+        }
+
+        // Fallback: just write zeros and the value
+        // This shouldn't happen in practice
+        for _ in 0..switch_bits + 1 {
             bw.write_bit(0);
         }
         bw.write_bit(1);
-
-        // Write the code
-        bw.write_bits(adj as u32, actual_bits);
+        bw.write_bits(code, 16);
     }
 }
 

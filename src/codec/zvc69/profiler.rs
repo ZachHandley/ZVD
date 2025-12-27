@@ -111,6 +111,18 @@ pub mod stages {
     /// Read data from bitstream
     pub const BITSTREAM_READ: &str = "bitstream_read";
 
+    /// Parse bitstream data
+    pub const BITSTREAM_PARSE: &str = "bitstream_parse";
+
+    /// Color space conversion / frame-to-tensor or tensor-to-frame
+    pub const COLOR_CONVERT: &str = "color_convert";
+
+    /// Motion vector encoding/decoding (compression)
+    pub const MOTION_CODING: &str = "motion_coding";
+
+    /// Compute residual (current - predicted)
+    pub const RESIDUAL_COMPUTE: &str = "residual_compute";
+
     /// Total encode time (all frame types)
     pub const TOTAL_ENCODE: &str = "total_encode";
 

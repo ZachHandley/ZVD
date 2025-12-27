@@ -286,7 +286,9 @@ pub use residual::{
 
 // TensorRT optimization types
 pub use tensorrt::{
-    GpuMemoryPool, Int8Calibrator, OptimizedZVC69, Precision, TensorRTConfig, TensorRTModel,
+    AsyncOperation, CudaStreamManager, CudaStreamStats, GpuMemoryPool, Int8Calibrator,
+    OptimizedZVC69, Precision, StreamRole, StreamState, TensorRTConfig, TensorRTModel,
+    TripleBufferPipeline,
 };
 
 // Profiling types
@@ -304,7 +306,7 @@ pub use memory::{
 // Pipeline types
 pub use pipeline::{
     EncodedFrame as PipelineEncodedFrame, PipelineConfig, PipelineFrame, PipelineStats,
-    PipelinedDecoder, PipelinedEncoder, SyncDecoder, SyncEncoder,
+    PipelinedDecoder, PipelinedEncoder, StreamAwareEncoder, SyncDecoder, SyncEncoder,
 };
 
 // Benchmark types
@@ -312,6 +314,14 @@ pub use benchmark::{
     assert_latency, assert_realtime, benchmark_1080p, benchmark_4k, benchmark_720p,
     benchmark_latency, benchmark_quality_levels, quick_validation, run_benchmark,
     run_benchmark_suite, BenchmarkConfig, BenchmarkResult, TestPattern,
+};
+
+// Precision validation types
+pub use benchmark::{
+    assert_fp16_quality, assert_int8_quality, calculate_mse, calculate_psnr,
+    compare_fp16_fp32_quality, compare_int8_fp32_quality, frame_psnr, mse_to_psnr,
+    run_precision_validation_suite, PrecisionQualityResult, FP16_PSNR_LOSS_THRESHOLD,
+    INT8_PSNR_LOSS_THRESHOLD,
 };
 
 // Re-export profile macro

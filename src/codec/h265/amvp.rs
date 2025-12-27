@@ -29,26 +29,38 @@
 //! 4. Remove duplicates
 //! 5. Insert zero MV if needed (to ensure at least 2 candidates)
 
-use crate::codec::h265::mv::{MotionVector, MvCandidate, PredictionList};
+use crate::codec::h265::mv::{MotionVector, MvCandidate, MotionVectorField, PredictionList};
 use crate::error::{Error, Result};
 
 /// AMVP (Advanced Motion Vector Prediction) derivation engine
-pub struct AmvpDerivation {
-    /// Current PU position X
+///
+/// This struct holds context for deriving AMVP candidates for a prediction unit.
+/// It requires access to the motion vector field of the current picture to fetch
+/// neighbor MVs.
+pub struct AmvpDerivation<'a> {
+    /// Current PU position X (in pixels)
     pub_x: usize,
-    /// Current PU position Y
+    /// Current PU position Y (in pixels)
     pub_y: usize,
-    /// Current PU width
+    /// Current PU width (in pixels)
     pub_width: usize,
-    /// Current PU height
+    /// Current PU height (in pixels)
     pub_height: usize,
-    /// Current reference index
+    /// Current reference index we're looking for
     ref_idx: u8,
     /// Prediction list (L0 or L1)
     pred_list: PredictionList,
+    /// Reference to the motion vector field for the current picture
+    mv_field: Option<&'a MotionVectorField>,
+    /// Current picture POC (for temporal scaling)
+    current_poc: i32,
+    /// Reference picture POCs for L0 (for temporal scaling)
+    ref_poc_l0: Vec<i32>,
+    /// Reference picture POCs for L1 (for temporal scaling)
+    ref_poc_l1: Vec<i32>,
 }
 
-impl AmvpDerivation {
+impl<'a> AmvpDerivation<'a> {
     /// Create a new AMVP derivation context
     pub fn new(
         pub_x: usize,
@@ -65,7 +77,53 @@ impl AmvpDerivation {
             pub_height,
             ref_idx,
             pred_list,
+            mv_field: None,
+            current_poc: 0,
+            ref_poc_l0: Vec::new(),
+            ref_poc_l1: Vec::new(),
         }
+    }
+
+    /// Create a new AMVP derivation context with motion vector field
+    pub fn with_mv_field(
+        pub_x: usize,
+        pub_y: usize,
+        pub_width: usize,
+        pub_height: usize,
+        ref_idx: u8,
+        pred_list: PredictionList,
+        mv_field: &'a MotionVectorField,
+    ) -> Self {
+        Self {
+            pub_x,
+            pub_y,
+            pub_width,
+            pub_height,
+            ref_idx,
+            pred_list,
+            mv_field: Some(mv_field),
+            current_poc: 0,
+            ref_poc_l0: Vec::new(),
+            ref_poc_l1: Vec::new(),
+        }
+    }
+
+    /// Set POC information for temporal MV scaling
+    pub fn set_poc_info(
+        &mut self,
+        current_poc: i32,
+        ref_poc_l0: Vec<i32>,
+        ref_poc_l1: Vec<i32>,
+    ) {
+        self.current_poc = current_poc;
+        self.ref_poc_l0 = ref_poc_l0;
+        self.ref_poc_l1 = ref_poc_l1;
+    }
+
+    /// Convert pixel coordinates to 4x4 block coordinates
+    #[inline]
+    fn pixel_to_block(pixel_pos: usize) -> usize {
+        pixel_pos / 4
     }
 
     /// Derive AMVP candidate list
@@ -169,22 +227,126 @@ impl AmvpDerivation {
     /// Derive temporal candidate from co-located picture
     fn derive_temporal(&self) -> Result<Option<MotionVector>> {
         // Get co-located position (center-right of current PU)
-        let col_x = self.pub_x + self.pub_width;
-        let col_y = self.pub_y + (self.pub_height / 2);
+        let _col_x = self.pub_x + self.pub_width;
+        let _col_y = self.pub_y + (self.pub_height / 2);
 
         // In a real implementation, this would fetch from the temporal MV field
-        // For now, we return None to indicate temporal MV not available
-        // This would be implemented when we have DPB (Decoded Picture Buffer)
+        // (co-located picture in the DPB). For now, we return None to indicate
+        // temporal MV not available. This would be implemented when we have full
+        // DPB (Decoded Picture Buffer) support with co-located picture tracking.
         Ok(None)
     }
 
-    /// Get MV from neighbor position (stub for now)
+    /// Get MV from neighbor position
     ///
-    /// In full implementation, this would query the MotionVectorField
-    fn get_neighbor_mv(&self, _x: usize, _y: usize) -> Result<Option<MotionVector>> {
-        // Stub: In real implementation, would fetch from MotionVectorField
-        // For now, return None to indicate no MV available
+    /// Fetches the motion vector from the MV field at the given pixel position.
+    /// Converts pixel coordinates to 4x4 block coordinates and retrieves the MV
+    /// for the appropriate prediction list.
+    ///
+    /// Returns the MV if:
+    /// 1. The neighbor block has inter prediction mode
+    /// 2. The neighbor uses the same prediction list (or has a compatible MV)
+    /// 3. After optional scaling for different reference pictures
+    fn get_neighbor_mv(&self, x: usize, y: usize) -> Result<Option<MotionVector>> {
+        let mv_field = match self.mv_field {
+            Some(field) => field,
+            None => return Ok(None), // No MV field available
+        };
+
+        // Convert pixel coordinates to 4x4 block coordinates
+        let block_x = Self::pixel_to_block(x);
+        let block_y = Self::pixel_to_block(y);
+
+        // First, try to get MV from the same prediction list
+        let (mv_opt, neighbor_ref_idx) = match self.pred_list {
+            PredictionList::L0 => {
+                if let Some((mv, ref_idx)) = mv_field.get_mv_l0(block_x, block_y) {
+                    (Some(mv), ref_idx)
+                } else {
+                    (None, 0)
+                }
+            }
+            PredictionList::L1 => {
+                if let Some((mv, ref_idx)) = mv_field.get_mv_l1(block_x, block_y) {
+                    (Some(mv), ref_idx)
+                } else {
+                    (None, 0)
+                }
+            }
+        };
+
+        if let Some(mv) = mv_opt {
+            // Check if the MV is valid (non-zero or explicitly set)
+            // A zero MV with ref_idx 0 might still be valid if block is inter-coded
+
+            // If reference indices match, return MV directly
+            if neighbor_ref_idx == self.ref_idx {
+                return Ok(Some(mv));
+            }
+
+            // Reference indices differ - need to scale the MV
+            // Get the POC for scaling
+            let target_ref_poc = self.get_ref_poc(self.ref_idx, self.pred_list);
+            let neighbor_ref_poc = self.get_ref_poc(neighbor_ref_idx, self.pred_list);
+
+            if let (Some(target_poc), Some(neighbor_poc)) = (target_ref_poc, neighbor_ref_poc) {
+                let scaled_mv = self.scale_mv(mv, neighbor_poc, self.current_poc, target_poc);
+                return Ok(Some(scaled_mv));
+            }
+
+            // If we can't get POC info for scaling, still return the MV
+            // (this is a fallback for when POC info is not available)
+            return Ok(Some(mv));
+        }
+
+        // If same list didn't have MV, try the other list and scale
+        let (other_mv_opt, other_ref_idx) = match self.pred_list {
+            PredictionList::L0 => {
+                // Try L1
+                if let Some((mv, ref_idx)) = mv_field.get_mv_l1(block_x, block_y) {
+                    (Some(mv), ref_idx)
+                } else {
+                    (None, 0)
+                }
+            }
+            PredictionList::L1 => {
+                // Try L0
+                if let Some((mv, ref_idx)) = mv_field.get_mv_l0(block_x, block_y) {
+                    (Some(mv), ref_idx)
+                } else {
+                    (None, 0)
+                }
+            }
+        };
+
+        if let Some(mv) = other_mv_opt {
+            // Get POCs for cross-list scaling
+            let target_ref_poc = self.get_ref_poc(self.ref_idx, self.pred_list);
+            let other_list = match self.pred_list {
+                PredictionList::L0 => PredictionList::L1,
+                PredictionList::L1 => PredictionList::L0,
+            };
+            let neighbor_ref_poc = self.get_ref_poc(other_ref_idx, other_list);
+
+            if let (Some(target_poc), Some(neighbor_poc)) = (target_ref_poc, neighbor_ref_poc) {
+                let scaled_mv = self.scale_mv(mv, neighbor_poc, self.current_poc, target_poc);
+                return Ok(Some(scaled_mv));
+            }
+
+            // Fallback: return unscaled MV if POC info unavailable
+            return Ok(Some(mv));
+        }
+
         Ok(None)
+    }
+
+    /// Get reference picture POC for a given ref_idx and list
+    fn get_ref_poc(&self, ref_idx: u8, list: PredictionList) -> Option<i32> {
+        let ref_pocs = match list {
+            PredictionList::L0 => &self.ref_poc_l0,
+            PredictionList::L1 => &self.ref_poc_l1,
+        };
+        ref_pocs.get(ref_idx as usize).copied()
     }
 
     /// Check if MV is duplicate of any in candidate list
@@ -244,7 +406,7 @@ impl AmvpCandidateList {
         self.candidates
             .get(index)
             .copied()
-            .ok_or_else(|| Error::InvalidData(format!("Invalid AMVP index: {}", index)))
+            .ok_or_else(|| Error::Codec(format!("Invalid AMVP index: {}", index)))
     }
 
     /// Get number of candidates
@@ -267,7 +429,7 @@ impl AmvpCandidateList {
         self.candidates.clear();
     }
 
-    /// Build candidate list from derivation
+    /// Build candidate list from derivation (without MV field - legacy compatibility)
     pub fn build(
         pub_x: usize,
         pub_y: usize,
@@ -277,6 +439,46 @@ impl AmvpCandidateList {
         pred_list: PredictionList,
     ) -> Result<Self> {
         let derivation = AmvpDerivation::new(pub_x, pub_y, pub_width, pub_height, ref_idx, pred_list);
+        let candidates = derivation.derive_candidates()?;
+
+        Ok(Self { candidates })
+    }
+
+    /// Build candidate list from derivation with MV field
+    pub fn build_with_mv_field<'a>(
+        pub_x: usize,
+        pub_y: usize,
+        pub_width: usize,
+        pub_height: usize,
+        ref_idx: u8,
+        pred_list: PredictionList,
+        mv_field: &'a MotionVectorField,
+    ) -> Result<Self> {
+        let derivation = AmvpDerivation::with_mv_field(
+            pub_x, pub_y, pub_width, pub_height, ref_idx, pred_list, mv_field
+        );
+        let candidates = derivation.derive_candidates()?;
+
+        Ok(Self { candidates })
+    }
+
+    /// Build candidate list with full POC info for proper MV scaling
+    pub fn build_with_poc_info<'a>(
+        pub_x: usize,
+        pub_y: usize,
+        pub_width: usize,
+        pub_height: usize,
+        ref_idx: u8,
+        pred_list: PredictionList,
+        mv_field: &'a MotionVectorField,
+        current_poc: i32,
+        ref_poc_l0: Vec<i32>,
+        ref_poc_l1: Vec<i32>,
+    ) -> Result<Self> {
+        let mut derivation = AmvpDerivation::with_mv_field(
+            pub_x, pub_y, pub_width, pub_height, ref_idx, pred_list, mv_field
+        );
+        derivation.set_poc_info(current_poc, ref_poc_l0, ref_poc_l1);
         let candidates = derivation.derive_candidates()?;
 
         Ok(Self { candidates })
@@ -407,12 +609,34 @@ mod tests {
     }
 
     #[test]
+    fn test_amvp_derivation_with_mv_field() {
+        let mv_field = MotionVectorField::new(64, 64);
+        let amvp = AmvpDerivation::with_mv_field(32, 32, 16, 16, 0, PredictionList::L0, &mv_field);
+        assert_eq!(amvp.pub_x, 32);
+        assert!(amvp.mv_field.is_some());
+    }
+
+    #[test]
     fn test_amvp_derive_candidates_minimum() {
         let amvp = AmvpDerivation::new(32, 32, 16, 16, 0, PredictionList::L0);
         let candidates = amvp.derive_candidates().unwrap();
 
         // Should always have at least 2 candidates (with zero MVs if needed)
         assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn test_amvp_derive_candidates_with_mv_field() {
+        let mut mv_field = MotionVectorField::new(64, 64);
+        // Set MV for neighbor A0 (at pixel 31, 47 -> block 7, 11)
+        mv_field.set_mv_l0(7, 11, MotionVector::new(16, 8), 0).unwrap();
+
+        let amvp = AmvpDerivation::with_mv_field(32, 32, 16, 16, 0, PredictionList::L0, &mv_field);
+        let candidates = amvp.derive_candidates().unwrap();
+
+        // Should have the MV from A0 and one zero MV
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0], MotionVector::new(16, 8));
     }
 
     #[test]
@@ -424,6 +648,33 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         assert!(candidates[0].is_zero());
         assert!(candidates[1].is_zero());
+    }
+
+    #[test]
+    fn test_amvp_get_neighbor_mv_with_field() {
+        let mut mv_field = MotionVectorField::new(64, 64);
+        // Set MV at block position (4, 4) which corresponds to pixels 16-19, 16-19
+        mv_field.set_mv_l0(4, 4, MotionVector::new(20, 10), 0).unwrap();
+
+        let amvp = AmvpDerivation::with_mv_field(20, 20, 8, 8, 0, PredictionList::L0, &mv_field);
+
+        // Try to get MV at pixel (17, 17) which should be block (4, 4)
+        let mv = amvp.get_neighbor_mv(17, 17).unwrap();
+        assert!(mv.is_some());
+        assert_eq!(mv.unwrap(), MotionVector::new(20, 10));
+    }
+
+    #[test]
+    fn test_amvp_get_neighbor_mv_cross_list() {
+        let mut mv_field = MotionVectorField::new(64, 64);
+        // Set MV only in L1 list
+        mv_field.set_mv_l1(4, 4, MotionVector::new(20, 10), 0).unwrap();
+
+        // Request from L0 - should fall back to L1
+        let amvp = AmvpDerivation::with_mv_field(20, 20, 8, 8, 0, PredictionList::L0, &mv_field);
+        let mv = amvp.get_neighbor_mv(17, 17).unwrap();
+        assert!(mv.is_some());
+        assert_eq!(mv.unwrap(), MotionVector::new(20, 10));
     }
 
     #[test]
@@ -506,6 +757,24 @@ mod tests {
     }
 
     #[test]
+    fn test_amvp_candidate_list_build_with_mv_field() {
+        let mut mv_field = MotionVectorField::new(64, 64);
+        // Set MVs for neighbors
+        mv_field.set_mv_l0(7, 11, MotionVector::new(16, 8), 0).unwrap(); // A0
+        mv_field.set_mv_l0(11, 7, MotionVector::new(20, 10), 0).unwrap(); // B0
+
+        let list = AmvpCandidateList::build_with_mv_field(
+            32, 32, 16, 16, 0, PredictionList::L0, &mv_field
+        ).unwrap();
+
+        assert_eq!(list.len(), 2);
+        // First candidate should be from A0
+        assert_eq!(list.get(0).unwrap(), MotionVector::new(16, 8));
+        // Second candidate should be from B0
+        assert_eq!(list.get(1).unwrap(), MotionVector::new(20, 10));
+    }
+
+    #[test]
     fn test_spatial_neighbor_a0() {
         let pos = SpatialNeighborHelper::get_a0_position(32, 32, 16);
         assert_eq!(pos, Some((31, 47))); // (x-1, y+height-1)
@@ -583,7 +852,7 @@ mod tests {
         assert!(scale.is_some());
 
         // cur_diff = 20-10 = 10, neighbor_diff = 20-5 = 15
-        // scale = (10 << 8) / 15 = 2560 / 15 ≈ 170
+        // scale = (10 << 8) / 15 = 2560 / 15 = 170
         let factor = scale.unwrap();
         assert!(factor > 0);
         assert!(factor < 256); // Should be less than 1.0 in fixed-point
@@ -664,5 +933,43 @@ mod tests {
         let list = AmvpCandidateList::default();
         assert!(list.is_empty());
         assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn test_pixel_to_block_conversion() {
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(0), 0);
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(3), 0);
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(4), 1);
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(7), 1);
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(8), 2);
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(31), 7);
+        assert_eq!(AmvpDerivation::<'_>::pixel_to_block(32), 8);
+    }
+
+    #[test]
+    fn test_amvp_with_poc_info() {
+        let mut mv_field = MotionVectorField::new(64, 64);
+        mv_field.set_mv_l0(7, 11, MotionVector::new(16, 8), 1).unwrap(); // Different ref_idx
+
+        let list = AmvpCandidateList::build_with_poc_info(
+            32, 32, 16, 16,
+            0,  // We want ref_idx 0
+            PredictionList::L0,
+            &mv_field,
+            20, // current_poc
+            vec![10, 5], // ref_poc_l0: ref 0 is at POC 10, ref 1 is at POC 5
+            vec![], // ref_poc_l1
+        ).unwrap();
+
+        assert_eq!(list.len(), 2);
+        // The MV should be scaled because neighbor has ref_idx 1 but we want ref_idx 0
+        // neighbor_ref_poc = 5, target_ref_poc = 10
+        // cur_diff = 20-10 = 10, neighbor_diff = 20-5 = 15
+        // scale = 10/15 = 2/3
+        let scaled = list.get(0).unwrap();
+        // 16 * (10/15) = 10.67 -> 10 (truncated)
+        // 8 * (10/15) = 5.33 -> 5 (truncated)
+        assert_eq!(scaled.x, 10);
+        assert_eq!(scaled.y, 5);
     }
 }

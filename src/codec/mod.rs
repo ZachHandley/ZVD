@@ -10,6 +10,9 @@ pub mod pcm;
 #[cfg(feature = "h264")]
 pub mod h264;
 
+#[cfg(feature = "h265")]
+pub mod h265;
+
 #[cfg(feature = "aac")]
 pub mod aac;
 
@@ -50,7 +53,7 @@ pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
 pub use h264::{H264Decoder, H264Encoder};
 
 #[cfg(feature = "aac")]
-pub use aac::AacDecoder;
+pub use aac::{AacDecoder, AacProfile};
 
 #[cfg(feature = "opus-codec")]
 pub use opus::{OpusDecoder, OpusEncoder};
@@ -58,6 +61,9 @@ pub use opus::{OpusDecoder, OpusEncoder};
 pub use flac::FlacDecoder;
 pub use mp3::Mp3Decoder;
 pub use vorbis::VorbisDecoder;
+
+#[cfg(feature = "h265")]
+pub use h265::H265Decoder;
 
 #[cfg(feature = "vp8-codec")]
 pub use vp8::{Vp8Decoder, Vp8Encoder};

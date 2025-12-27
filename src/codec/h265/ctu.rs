@@ -3,21 +3,21 @@
 //! The CTU is the basic unit of H.265 encoding/decoding. Each CTU is recursively
 //! subdivided using a quadtree structure into smaller Coding Units (CUs).
 //!
-//! CTU sizes: 64×64, 32×32, or 16×16 (specified in SPS)
-//! CU sizes: 64×64 down to 8×8 (quadtree partitioning)
+//! CTU sizes: 64x64, 32x32, or 16x16 (specified in SPS)
+//! CU sizes: 64x64 down to 8x8 (quadtree partitioning)
 //! PU sizes: Various sizes for prediction
-//! TU sizes: 32×32 down to 4×4 for transforms
+//! TU sizes: 32x32 down to 4x4 for transforms
 
 use crate::error::{Error, Result};
 
 /// CTU size enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CtuSize {
-    /// 16×16 CTU
+    /// 16x16 CTU
     Size16 = 16,
-    /// 32×32 CTU
+    /// 32x32 CTU
     Size32 = 32,
-    /// 64×64 CTU (most common)
+    /// 64x64 CTU (most common)
     Size64 = 64,
 }
 

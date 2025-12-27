@@ -40,6 +40,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 
+# Cryptographic hashing (for TensorRT engine caching)
+sha2 = "0.10"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -69,8 +72,8 @@ symphonia = { version = "0.5", features = [
 ], optional = false }
 
 # AAC codec support (optional, patent-encumbered)
+# The "aac" feature on symphonia enables symphonia-codec-aac
 # See CODEC_LICENSES.md for patent licensing requirements
-symphonia-codec-aac = { version = "0.5", optional = true }
 
 # Y4M - YUV4MPEG2 raw video format (MIT)
 y4m = "0.8"
@@ -151,7 +154,7 @@ vp9-libvpx = ["vpx-sys"]
 # Users must acknowledge patent licensing requirements (see CODEC_LICENSES.md)
 h264 = ["openh264", "mp4"]
 h265 = []  # Pure Rust H.265 implementation (no external dependencies)
-aac = ["symphonia-codec-aac", "mp4"]
+aac = ["symphonia/aac", "mp4"]
 mp4-support = ["mp4"]
 webm-support = ["mkv-element"]
 

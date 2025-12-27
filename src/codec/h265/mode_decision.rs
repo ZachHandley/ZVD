@@ -111,7 +111,7 @@ impl ModeDecision {
         }
 
         // Return best mode
-        best_result.ok_or_else(|| Error::InvalidData("No valid mode found".to_string()))
+        best_result.ok_or_else(|| Error::Codec("No valid mode found".to_string()))
     }
 
     /// Test intra coding mode

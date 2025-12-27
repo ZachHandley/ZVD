@@ -24,11 +24,11 @@ impl Quantizer {
     /// Create a new quantizer with given QP
     pub fn new(qp: u8, bit_depth: u8) -> Result<Self> {
         if qp > 51 {
-            return Err(Error::InvalidData(format!("Invalid QP: {}", qp)));
+            return Err(Error::Codec(format!("Invalid QP: {}", qp)));
         }
 
         if bit_depth != 8 && bit_depth != 10 && bit_depth != 12 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Invalid bit depth: {}",
                 bit_depth
             )));
@@ -40,7 +40,7 @@ impl Quantizer {
     /// Set quantization parameter
     pub fn set_qp(&mut self, qp: u8) -> Result<()> {
         if qp > 51 {
-            return Err(Error::InvalidData(format!("Invalid QP: {}", qp)));
+            return Err(Error::Codec(format!("Invalid QP: {}", qp)));
         }
         self.qp = qp;
         Ok(())
@@ -57,14 +57,14 @@ impl Quantizer {
     /// Used during decoding.
     pub fn dequantize(&self, coeffs: &[i16], output: &mut [i16], log2_size: u8) -> Result<()> {
         if coeffs.len() != output.len() {
-            return Err(Error::InvalidData(
+            return Err(Error::Codec(
                 "Coefficient arrays must be same length".to_string(),
             ));
         }
 
         let size = 1usize << log2_size;
         if coeffs.len() != size * size {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Expected {} coefficients for {}x{} block",
                 size * size,
                 size,
@@ -91,14 +91,14 @@ impl Quantizer {
     /// Used during encoding.
     pub fn quantize(&self, coeffs: &[i16], output: &mut [i16], log2_size: u8) -> Result<()> {
         if coeffs.len() != output.len() {
-            return Err(Error::InvalidData(
+            return Err(Error::Codec(
                 "Coefficient arrays must be same length".to_string(),
             ));
         }
 
         let size = 1usize << log2_size;
         if coeffs.len() != size * size {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Expected {} coefficients for {}x{} block",
                 size * size,
                 size,

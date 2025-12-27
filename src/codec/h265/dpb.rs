@@ -137,7 +137,7 @@ impl DecodedPictureBuffer {
         if let Some(oldest) = self.short_term_refs.pop_front() {
             Ok(())
         } else {
-            Err(Error::InvalidData(
+            Err(Error::Codec(
                 "No short-term references to remove".to_string(),
             ))
         }
@@ -179,7 +179,7 @@ impl DecodedPictureBuffer {
             self.long_term_refs.push(pic);
             Ok(())
         } else {
-            Err(Error::InvalidData(format!(
+            Err(Error::Codec(format!(
                 "Picture with POC {} not found in short-term refs",
                 poc
             )))
@@ -192,7 +192,7 @@ impl DecodedPictureBuffer {
             pic.mark_unused();
             Ok(())
         } else {
-            Err(Error::InvalidData(format!(
+            Err(Error::Codec(format!(
                 "Picture with POC {} not found",
                 poc
             )))
@@ -264,7 +264,7 @@ impl RefPicList {
     /// Add a reference POC to the list
     pub fn add(&mut self, poc: Poc) -> Result<()> {
         if self.pocs.len() >= self.max_size {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Reference list full (max {})",
                 self.max_size
             )));

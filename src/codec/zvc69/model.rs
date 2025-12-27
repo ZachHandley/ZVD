@@ -48,11 +48,14 @@ use std::path::Path;
 
 #[cfg(feature = "zvc69")]
 use ort::{
-    execution_providers::{CPUExecutionProvider, CUDAExecutionProvider},
+    execution_providers::{CPUExecutionProvider, CUDAExecutionProvider, TensorRTExecutionProvider},
     session::{builder::GraphOptimizationLevel, Session},
 };
 #[cfg(feature = "zvc69")]
 use std::sync::Mutex;
+
+#[cfg(feature = "zvc69")]
+use super::tensorrt::TensorRTConfig;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -140,6 +143,13 @@ pub struct NeuralModelConfig {
 
     /// Enable memory pattern optimization
     pub enable_memory_pattern: bool,
+
+    /// Enable TensorRT execution provider
+    pub use_tensorrt: bool,
+
+    /// TensorRT configuration (if enabled)
+    #[cfg(feature = "zvc69")]
+    pub tensorrt_config: Option<TensorRTConfig>,
 }
 
 /// Wrapper for GraphOptimizationLevel to avoid exposing ort types
@@ -183,6 +193,9 @@ impl Default for NeuralModelConfig {
             device: Device::Cpu,
             use_fp16: false,
             enable_memory_pattern: true,
+            use_tensorrt: false,
+            #[cfg(feature = "zvc69")]
+            tensorrt_config: None,
         }
     }
 }
@@ -227,6 +240,75 @@ impl NeuralModelConfig {
     pub fn with_hyperprior_channels(mut self, channels: usize) -> Self {
         self.hyperprior_channels = channels;
         self
+    }
+
+    /// Enable TensorRT execution provider
+    pub fn with_tensorrt(mut self, enable: bool) -> Self {
+        self.use_tensorrt = enable;
+        self
+    }
+
+    /// Set TensorRT configuration
+    #[cfg(feature = "zvc69")]
+    pub fn with_tensorrt_config(mut self, config: TensorRTConfig) -> Self {
+        self.use_tensorrt = true;
+        // Enable FP16 if TensorRT config has it enabled
+        if config.fp16_enabled {
+            self.use_fp16 = true;
+        }
+        self.tensorrt_config = Some(config);
+        self
+    }
+
+    /// Create configuration optimized for TensorRT inference
+    #[cfg(feature = "zvc69")]
+    pub fn tensorrt_optimized(device_id: usize) -> Self {
+        let trt_config = TensorRTConfig::default().with_device(device_id);
+        NeuralModelConfig {
+            latent_channels: DEFAULT_LATENT_CHANNELS,
+            hyperprior_channels: DEFAULT_HYPERPRIOR_CHANNELS,
+            optimization_level: OptimizationLevel::All,
+            num_threads: 0,
+            device: Device::Cuda(device_id),
+            use_fp16: true,
+            enable_memory_pattern: true,
+            use_tensorrt: true,
+            tensorrt_config: Some(trt_config),
+        }
+    }
+
+    /// Create configuration optimized for fast TensorRT inference
+    #[cfg(feature = "zvc69")]
+    pub fn tensorrt_fast(device_id: usize) -> Self {
+        let trt_config = TensorRTConfig::fast().with_device(device_id);
+        NeuralModelConfig {
+            latent_channels: DEFAULT_LATENT_CHANNELS,
+            hyperprior_channels: DEFAULT_HYPERPRIOR_CHANNELS,
+            optimization_level: OptimizationLevel::All,
+            num_threads: 0,
+            device: Device::Cuda(device_id),
+            use_fp16: true,
+            enable_memory_pattern: true,
+            use_tensorrt: true,
+            tensorrt_config: Some(trt_config),
+        }
+    }
+
+    /// Create configuration optimized for quality TensorRT inference
+    #[cfg(feature = "zvc69")]
+    pub fn tensorrt_quality(device_id: usize) -> Self {
+        let trt_config = TensorRTConfig::quality().with_device(device_id);
+        NeuralModelConfig {
+            latent_channels: DEFAULT_LATENT_CHANNELS,
+            hyperprior_channels: DEFAULT_HYPERPRIOR_CHANNELS,
+            optimization_level: OptimizationLevel::All,
+            num_threads: 0,
+            device: Device::Cuda(device_id),
+            use_fp16: false, // Quality mode uses FP32
+            enable_memory_pattern: true,
+            use_tensorrt: true,
+            tensorrt_config: Some(trt_config),
+        }
     }
 }
 
@@ -630,10 +712,50 @@ impl NeuralModel {
     }
 
     /// Configure execution providers based on device setting
+    ///
+    /// When TensorRT is enabled, the fallback chain is:
+    /// TensorRT -> CUDA -> CPU
+    ///
+    /// This ensures that if TensorRT is unavailable or fails, we fall back
+    /// gracefully to CUDA, and if CUDA is unavailable, we fall back to CPU.
     fn configure_execution_providers(
         builder: ort::session::builder::SessionBuilder,
         config: &NeuralModelConfig,
     ) -> Result<ort::session::builder::SessionBuilder, ort::Error> {
+        // If TensorRT is enabled, configure with TensorRT EP and fallbacks
+        if config.use_tensorrt {
+            let device_id = config.device.index() as i32;
+
+            // Build TensorRT execution provider
+            let mut trt_ep = TensorRTExecutionProvider::default();
+            trt_ep = trt_ep.with_device_id(device_id);
+
+            // Apply TensorRT config if available
+            if let Some(ref trt_config) = config.tensorrt_config {
+                if trt_config.fp16_enabled {
+                    trt_ep = trt_ep.with_fp16(true);
+                }
+                if trt_config.int8_enabled {
+                    trt_ep = trt_ep.with_int8(true);
+                }
+                // Note: Other TensorRT options like engine caching would require
+                // direct TensorRT API access or environment variables
+            } else if config.use_fp16 {
+                // Enable FP16 by default when TensorRT is available
+                trt_ep = trt_ep.with_fp16(true);
+            }
+
+            // Build execution provider chain: TensorRT -> CUDA -> CPU
+            return builder.with_execution_providers([
+                trt_ep.build(),
+                CUDAExecutionProvider::default()
+                    .with_device_id(device_id)
+                    .build(),
+                CPUExecutionProvider::default().build(),
+            ]);
+        }
+
+        // Standard device-based configuration without TensorRT
         match config.device {
             Device::Cpu => {
                 builder.with_execution_providers([CPUExecutionProvider::default().build()])

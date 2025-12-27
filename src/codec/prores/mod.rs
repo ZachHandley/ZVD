@@ -3,8 +3,12 @@
 //! ProRes is a high-quality video codec designed for professional video editing.
 //! It offers excellent image quality with manageable file sizes.
 
+mod bitstream;
+mod dct;
 pub mod decoder;
 pub mod encoder;
+mod idct;
+mod tables;
 
 pub use decoder::ProResDecoder;
 pub use encoder::ProResEncoder;

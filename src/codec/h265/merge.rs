@@ -27,33 +27,59 @@
 //!   A0 +-------+
 //! ```
 //!
-//! Priority order: A1 → B1 → B0 → A0 → B2 → Temporal → Combined → Zero
+//! Priority order: A1 -> B1 -> B0 -> A0 -> B2 -> Temporal -> Combined -> Zero
 
-use crate::codec::h265::mv::{MotionVector, MergeCandidate, PredictionFlag, PredictionList};
-use crate::error::{Error, Result};
+use crate::codec::h265::mv::{MotionVector, MotionVectorField, MergeCandidate, PredictionFlag};
+use crate::error::Result;
 
 /// Merge mode candidate derivation engine
-pub struct MergeDerivation {
-    /// Current PU position X
+///
+/// This struct derives merge candidates from spatial and temporal neighbors.
+/// It takes references to motion vector fields to look up neighbor motion info.
+pub struct MergeDerivation<'a> {
+    /// Current PU position X (in pixels)
     pub_x: usize,
-    /// Current PU position Y
+    /// Current PU position Y (in pixels)
     pub_y: usize,
-    /// Current PU width
+    /// Current PU width (in pixels)
     pub_width: usize,
-    /// Current PU height
+    /// Current PU height (in pixels)
     pub_height: usize,
     /// Maximum merge candidates (typically 5)
     max_candidates: usize,
+    /// Motion vector field for the current picture
+    mv_field: &'a MotionVectorField,
+    /// Motion vector field for the collocated picture (temporal candidate)
+    collocated_mv_field: Option<&'a MotionVectorField>,
+    /// Picture width in pixels (for boundary checks)
+    pic_width: usize,
+    /// Picture height in pixels (for boundary checks)
+    pic_height: usize,
 }
 
-impl MergeDerivation {
+impl<'a> MergeDerivation<'a> {
     /// Create a new merge derivation context
+    ///
+    /// # Arguments
+    /// * `pub_x` - PU position X in pixels
+    /// * `pub_y` - PU position Y in pixels
+    /// * `pub_width` - PU width in pixels
+    /// * `pub_height` - PU height in pixels
+    /// * `max_candidates` - Maximum number of merge candidates (clamped to 5)
+    /// * `mv_field` - Motion vector field for current picture
+    /// * `collocated_mv_field` - Optional MV field for temporal candidate
+    /// * `pic_width` - Picture width in pixels
+    /// * `pic_height` - Picture height in pixels
     pub fn new(
         pub_x: usize,
         pub_y: usize,
         pub_width: usize,
         pub_height: usize,
         max_candidates: usize,
+        mv_field: &'a MotionVectorField,
+        collocated_mv_field: Option<&'a MotionVectorField>,
+        pic_width: usize,
+        pic_height: usize,
     ) -> Self {
         Self {
             pub_x,
@@ -61,14 +87,19 @@ impl MergeDerivation {
             pub_width,
             pub_height,
             max_candidates: max_candidates.min(5), // H.265 spec maximum
+            mv_field,
+            collocated_mv_field,
+            pic_width,
+            pic_height,
         }
     }
 
     /// Derive merge candidate list
     ///
-    /// Returns up to 5 candidates for merge mode.
+    /// Returns up to 5 candidates for merge mode, following H.265 spec order:
+    /// A1 -> B1 -> B0 -> A0 -> B2 -> Temporal -> Combined -> Zero
     pub fn derive_candidates(&self) -> Result<Vec<MergeCandidate>> {
-        let mut candidates = Vec::new();
+        let mut candidates = Vec::with_capacity(self.max_candidates);
 
         // 1. Spatial candidates (check A1, B1, B0, A0, B2 in order)
         self.add_spatial_candidates(&mut candidates)?;
@@ -107,10 +138,10 @@ impl MergeDerivation {
 
     /// Add spatial merge candidates
     fn add_spatial_candidates(&self, candidates: &mut Vec<MergeCandidate>) -> Result<()> {
-        // Priority order per H.265 spec: A1 → B1 → B0 → A0 → B2
+        // Priority order per H.265 spec: A1 -> B1 -> B0 -> A0 -> B2
 
-        // A1 (left, above bottom)
-        if let Some(cand) = self.get_neighbor_a1()? {
+        // A1 (left neighbor, at bottom of left edge minus some offset)
+        if let Some(cand) = self.get_neighbor_a1() {
             if !self.is_duplicate(&cand, candidates) {
                 candidates.push(cand);
                 if candidates.len() >= self.max_candidates {
@@ -119,8 +150,8 @@ impl MergeDerivation {
             }
         }
 
-        // B1 (above, left of right)
-        if let Some(cand) = self.get_neighbor_b1()? {
+        // B1 (above neighbor, at right edge of top edge minus some offset)
+        if let Some(cand) = self.get_neighbor_b1() {
             if !self.is_duplicate(&cand, candidates) {
                 candidates.push(cand);
                 if candidates.len() >= self.max_candidates {
@@ -129,8 +160,8 @@ impl MergeDerivation {
             }
         }
 
-        // B0 (above, right)
-        if let Some(cand) = self.get_neighbor_b0()? {
+        // B0 (above, at right edge of PU)
+        if let Some(cand) = self.get_neighbor_b0() {
             if !self.is_duplicate(&cand, candidates) {
                 candidates.push(cand);
                 if candidates.len() >= self.max_candidates {
@@ -139,8 +170,8 @@ impl MergeDerivation {
             }
         }
 
-        // A0 (left, bottom)
-        if let Some(cand) = self.get_neighbor_a0()? {
+        // A0 (left, at bottom edge of PU)
+        if let Some(cand) = self.get_neighbor_a0() {
             if !self.is_duplicate(&cand, candidates) {
                 candidates.push(cand);
                 if candidates.len() >= self.max_candidates {
@@ -149,63 +180,133 @@ impl MergeDerivation {
             }
         }
 
-        // B2 (above-left corner)
-        if let Some(cand) = self.get_neighbor_b2()? {
-            if !self.is_duplicate(&cand, candidates) {
-                candidates.push(cand);
+        // B2 (above-left corner) - only added if we have < 4 spatial candidates
+        // per H.265 spec 8.5.3.2.2
+        if candidates.len() < 4 {
+            if let Some(cand) = self.get_neighbor_b2() {
+                if !self.is_duplicate(&cand, candidates) {
+                    candidates.push(cand);
+                }
             }
         }
 
         Ok(())
     }
 
-    /// Get merge candidate from A0 position (left, bottom)
-    fn get_neighbor_a0(&self) -> Result<Option<MergeCandidate>> {
+    /// Get merge candidate from A0 position (left, at bottom of current PU)
+    ///
+    /// Position: (pub_x - 1, pub_y + pub_height)
+    fn get_neighbor_a0(&self) -> Option<MergeCandidate> {
+        // A0 is at the bottom-left corner, one pixel to the left
         if self.pub_x == 0 {
-            return Ok(None);
+            return None;
         }
-        // In real implementation, would query MotionVectorField
-        // For now, stub returns None
-        Ok(None)
+
+        let neighbor_x = self.pub_x - 1;
+        let neighbor_y = self.pub_y + self.pub_height;
+
+        // Check if position is within picture bounds
+        if neighbor_y >= self.pic_height {
+            return None;
+        }
+
+        // Get merge candidate from MV field at this pixel position
+        self.mv_field.get_merge_candidate_at_pixel(neighbor_x, neighbor_y)
     }
 
-    /// Get merge candidate from A1 position (left, above bottom)
-    fn get_neighbor_a1(&self) -> Result<Option<MergeCandidate>> {
-        if self.pub_x == 0 || self.pub_height <= 4 {
-            return Ok(None);
+    /// Get merge candidate from A1 position (left, at bottom of PU - 1)
+    ///
+    /// Position: (pub_x - 1, pub_y + pub_height - 1)
+    fn get_neighbor_a1(&self) -> Option<MergeCandidate> {
+        // A1 is to the left of the current PU, aligned with bottom
+        if self.pub_x == 0 {
+            return None;
         }
-        Ok(None)
+
+        let neighbor_x = self.pub_x - 1;
+        let neighbor_y = self.pub_y + self.pub_height - 1;
+
+        // Get merge candidate from MV field at this pixel position
+        self.mv_field.get_merge_candidate_at_pixel(neighbor_x, neighbor_y)
     }
 
-    /// Get merge candidate from B0 position (above, right)
-    fn get_neighbor_b0(&self) -> Result<Option<MergeCandidate>> {
+    /// Get merge candidate from B0 position (above, at right edge + 1)
+    ///
+    /// Position: (pub_x + pub_width, pub_y - 1)
+    fn get_neighbor_b0(&self) -> Option<MergeCandidate> {
+        // B0 is above-right of the current PU
         if self.pub_y == 0 {
-            return Ok(None);
+            return None;
         }
-        Ok(None)
+
+        let neighbor_x = self.pub_x + self.pub_width;
+        let neighbor_y = self.pub_y - 1;
+
+        // Check if position is within picture bounds
+        if neighbor_x >= self.pic_width {
+            return None;
+        }
+
+        // Get merge candidate from MV field at this pixel position
+        self.mv_field.get_merge_candidate_at_pixel(neighbor_x, neighbor_y)
     }
 
-    /// Get merge candidate from B1 position (above, left of right)
-    fn get_neighbor_b1(&self) -> Result<Option<MergeCandidate>> {
-        if self.pub_y == 0 || self.pub_width <= 4 {
-            return Ok(None);
+    /// Get merge candidate from B1 position (above, at right edge - 1)
+    ///
+    /// Position: (pub_x + pub_width - 1, pub_y - 1)
+    fn get_neighbor_b1(&self) -> Option<MergeCandidate> {
+        // B1 is directly above the right edge of current PU
+        if self.pub_y == 0 {
+            return None;
         }
-        Ok(None)
+
+        let neighbor_x = self.pub_x + self.pub_width - 1;
+        let neighbor_y = self.pub_y - 1;
+
+        // Get merge candidate from MV field at this pixel position
+        self.mv_field.get_merge_candidate_at_pixel(neighbor_x, neighbor_y)
     }
 
     /// Get merge candidate from B2 position (above-left corner)
-    fn get_neighbor_b2(&self) -> Result<Option<MergeCandidate>> {
+    ///
+    /// Position: (pub_x - 1, pub_y - 1)
+    fn get_neighbor_b2(&self) -> Option<MergeCandidate> {
+        // B2 is at the top-left corner, one pixel up and left
         if self.pub_x == 0 || self.pub_y == 0 {
-            return Ok(None);
+            return None;
         }
-        Ok(None)
+
+        let neighbor_x = self.pub_x - 1;
+        let neighbor_y = self.pub_y - 1;
+
+        // Get merge candidate from MV field at this pixel position
+        self.mv_field.get_merge_candidate_at_pixel(neighbor_x, neighbor_y)
     }
 
-    /// Derive temporal merge candidate
+    /// Derive temporal merge candidate from collocated picture
+    ///
+    /// Uses the center-right position in the collocated picture's MV field.
     fn derive_temporal(&self) -> Result<Option<MergeCandidate>> {
-        // Would query co-located picture's MV field
-        // Stub for now
-        Ok(None)
+        let collocated = match self.collocated_mv_field {
+            Some(field) => field,
+            None => return Ok(None),
+        };
+
+        // H.265 uses center-bottom-right position for temporal MV derivation
+        // Position: center of the right edge of the current PU
+        let col_x = self.pub_x + self.pub_width;
+        let col_y = self.pub_y + self.pub_height;
+
+        // First try bottom-right position
+        if let Some(cand) = collocated.get_merge_candidate_at_pixel(col_x, col_y) {
+            return Ok(Some(cand));
+        }
+
+        // Fallback to center position
+        let center_x = self.pub_x + self.pub_width / 2;
+        let center_y = self.pub_y + self.pub_height / 2;
+
+        Ok(collocated.get_merge_candidate_at_pixel(center_x, center_y))
     }
 
     /// Add combined bi-predictive candidates
@@ -217,24 +318,30 @@ impl MergeDerivation {
             return Ok(());
         }
 
-        // Try to find candidates with L0 and L1
-        let mut l0_cands = Vec::new();
-        let mut l1_cands = Vec::new();
+        // Collect L0 and L1 candidates with their ref indices
+        let mut l0_cands: Vec<(MotionVector, u8)> = Vec::new();
+        let mut l1_cands: Vec<(MotionVector, u8)> = Vec::new();
 
         for cand in candidates.iter() {
             if cand.pred_flag == PredictionFlag::L0 || cand.pred_flag == PredictionFlag::Bi {
-                l0_cands.push(cand.mv_l0);
+                l0_cands.push((cand.mv_l0, cand.ref_idx_l0));
             }
             if cand.pred_flag == PredictionFlag::L1 || cand.pred_flag == PredictionFlag::Bi {
-                l1_cands.push(cand.mv_l1);
+                l1_cands.push((cand.mv_l1, cand.ref_idx_l1));
             }
         }
 
-        // Create combined candidates
-        for (i, &mv_l0) in l0_cands.iter().enumerate() {
-            for (j, &mv_l1) in l1_cands.iter().enumerate() {
+        // Create combined candidates (l0 from one, l1 from another)
+        for (i, &(mv_l0, ref_l0)) in l0_cands.iter().enumerate() {
+            for (j, &(mv_l1, ref_l1)) in l1_cands.iter().enumerate() {
                 if i != j && candidates.len() < self.max_candidates {
-                    let combined = MergeCandidate::new(mv_l0, mv_l1, 0, 0, PredictionFlag::Bi);
+                    let combined = MergeCandidate::new(
+                        mv_l0,
+                        mv_l1,
+                        ref_l0,
+                        ref_l1,
+                        PredictionFlag::Bi,
+                    );
                     if !self.is_duplicate(&combined, candidates) {
                         candidates.push(combined);
                         if candidates.len() >= self.max_candidates {
@@ -246,6 +353,70 @@ impl MergeDerivation {
         }
 
         Ok(())
+    }
+
+    /// Check if candidate is duplicate
+    fn is_duplicate(&self, cand: &MergeCandidate, candidates: &[MergeCandidate]) -> bool {
+        candidates.iter().any(|c| {
+            c.mv_l0 == cand.mv_l0
+                && c.mv_l1 == cand.mv_l1
+                && c.ref_idx_l0 == cand.ref_idx_l0
+                && c.ref_idx_l1 == cand.ref_idx_l1
+                && c.pred_flag == cand.pred_flag
+        })
+    }
+}
+
+/// Simplified MergeDerivation for cases without MV field access
+///
+/// This is useful for initial testing or when MV field is not yet populated.
+pub struct SimpleMergeDerivation {
+    /// Current PU position X (in pixels)
+    pub_x: usize,
+    /// Current PU position Y (in pixels)
+    pub_y: usize,
+    /// Current PU width (in pixels)
+    pub_width: usize,
+    /// Current PU height (in pixels)
+    pub_height: usize,
+    /// Maximum merge candidates (typically 5)
+    max_candidates: usize,
+}
+
+impl SimpleMergeDerivation {
+    /// Create a new simple merge derivation context
+    pub fn new(
+        pub_x: usize,
+        pub_y: usize,
+        pub_width: usize,
+        pub_height: usize,
+        max_candidates: usize,
+    ) -> Self {
+        Self {
+            pub_x,
+            pub_y,
+            pub_width,
+            pub_height,
+            max_candidates: max_candidates.min(5),
+        }
+    }
+
+    /// Derive merge candidate list (returns zero MVs only)
+    pub fn derive_candidates(&self) -> Result<Vec<MergeCandidate>> {
+        let mut candidates = Vec::with_capacity(self.max_candidates);
+
+        // Fill with zero MV candidates
+        while candidates.len() < self.max_candidates {
+            candidates.push(MergeCandidate::new(
+                MotionVector::zero(),
+                MotionVector::zero(),
+                0,
+                0,
+                PredictionFlag::L0,
+            ));
+        }
+
+        Ok(candidates)
     }
 
     /// Check if candidate is duplicate
@@ -274,7 +445,37 @@ impl MergeCandidateListBuilder {
         }
     }
 
-    /// Build merge candidate list for a PU
+    /// Build merge candidate list for a PU using MV field
+    ///
+    /// This is the full implementation that queries the MV field for neighbors.
+    pub fn build_with_mv_field<'a>(
+        &self,
+        pub_x: usize,
+        pub_y: usize,
+        pub_width: usize,
+        pub_height: usize,
+        mv_field: &'a MotionVectorField,
+        collocated_mv_field: Option<&'a MotionVectorField>,
+        pic_width: usize,
+        pic_height: usize,
+    ) -> Result<Vec<MergeCandidate>> {
+        let derivation = MergeDerivation::new(
+            pub_x,
+            pub_y,
+            pub_width,
+            pub_height,
+            self.max_candidates,
+            mv_field,
+            collocated_mv_field,
+            pic_width,
+            pic_height,
+        );
+        derivation.derive_candidates()
+    }
+
+    /// Build merge candidate list for a PU (simplified version)
+    ///
+    /// This version returns only zero MV candidates when no MV field is available.
     pub fn build(
         &self,
         pub_x: usize,
@@ -282,7 +483,7 @@ impl MergeCandidateListBuilder {
         pub_width: usize,
         pub_height: usize,
     ) -> Result<Vec<MergeCandidate>> {
-        let derivation = MergeDerivation::new(
+        let derivation = SimpleMergeDerivation::new(
             pub_x,
             pub_y,
             pub_width,
@@ -464,9 +665,15 @@ impl MergeSpatialNeighbors {
 mod tests {
     use super::*;
 
+    // Helper to create a test MV field
+    fn create_test_mv_field(width: usize, height: usize) -> MotionVectorField {
+        MotionVectorField::new(width, height)
+    }
+
     #[test]
     fn test_merge_derivation_creation() {
-        let merge = MergeDerivation::new(32, 32, 16, 16, 5);
+        let mv_field = create_test_mv_field(64, 64);
+        let merge = MergeDerivation::new(32, 32, 16, 16, 5, &mv_field, None, 64, 64);
         assert_eq!(merge.pub_x, 32);
         assert_eq!(merge.pub_y, 32);
         assert_eq!(merge.max_candidates, 5);
@@ -474,13 +681,15 @@ mod tests {
 
     #[test]
     fn test_merge_derivation_max_candidates_limit() {
-        let merge = MergeDerivation::new(32, 32, 16, 16, 10);
+        let mv_field = create_test_mv_field(64, 64);
+        let merge = MergeDerivation::new(32, 32, 16, 16, 10, &mv_field, None, 64, 64);
         assert_eq!(merge.max_candidates, 5); // Clamped to spec maximum
     }
 
     #[test]
     fn test_merge_derive_candidates_minimum() {
-        let merge = MergeDerivation::new(32, 32, 16, 16, 5);
+        let mv_field = create_test_mv_field(64, 64);
+        let merge = MergeDerivation::new(32, 32, 16, 16, 5, &mv_field, None, 64, 64);
         let candidates = merge.derive_candidates().unwrap();
 
         // Should have up to 5 candidates
@@ -490,7 +699,8 @@ mod tests {
 
     #[test]
     fn test_merge_zero_fill() {
-        let merge = MergeDerivation::new(0, 0, 16, 16, 5);
+        let mv_field = create_test_mv_field(64, 64);
+        let merge = MergeDerivation::new(0, 0, 16, 16, 5, &mv_field, None, 64, 64);
         let candidates = merge.derive_candidates().unwrap();
 
         // At (0,0), no spatial neighbors, should fill with zeros
@@ -501,7 +711,8 @@ mod tests {
 
     #[test]
     fn test_merge_is_duplicate() {
-        let merge = MergeDerivation::new(32, 32, 16, 16, 5);
+        let mv_field = create_test_mv_field(64, 64);
+        let merge = MergeDerivation::new(32, 32, 16, 16, 5, &mv_field, None, 64, 64);
         let cand1 = MergeCandidate::new(
             MotionVector::new(16, 8),
             MotionVector::zero(),
@@ -530,12 +741,85 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_with_neighbors() {
+        let mut mv_field = create_test_mv_field(128, 128);
+
+        // Set up some motion vectors in neighbor positions
+        // A1 position for PU at (32, 32) with size 16x16 is (31, 47) -> block (7, 11)
+        mv_field.set_mv_l0(7, 11, MotionVector::new(16, 8), 0).unwrap();
+
+        // B1 position is (47, 31) -> block (11, 7)
+        mv_field.set_mv_l0(11, 7, MotionVector::new(20, 12), 0).unwrap();
+
+        let merge = MergeDerivation::new(32, 32, 16, 16, 5, &mv_field, None, 128, 128);
+        let candidates = merge.derive_candidates().unwrap();
+
+        // Should have 5 candidates total
+        assert_eq!(candidates.len(), 5);
+
+        // First candidate should be from A1
+        assert_eq!(candidates[0].mv_l0, MotionVector::new(16, 8));
+
+        // Second candidate should be from B1
+        assert_eq!(candidates[1].mv_l0, MotionVector::new(20, 12));
+    }
+
+    #[test]
+    fn test_merge_temporal_candidate() {
+        let mv_field = create_test_mv_field(128, 128);
+        let mut collocated_field = create_test_mv_field(128, 128);
+
+        // Set up collocated MV at the temporal position
+        // For PU at (32, 32) with size 16x16, temporal position is around (48, 48) -> block (12, 12)
+        collocated_field.set_mv_l0(12, 12, MotionVector::new(8, 4), 0).unwrap();
+
+        let merge = MergeDerivation::new(32, 32, 16, 16, 5, &mv_field, Some(&collocated_field), 128, 128);
+        let candidates = merge.derive_candidates().unwrap();
+
+        // Should have 5 candidates
+        assert_eq!(candidates.len(), 5);
+
+        // One of the candidates should be the temporal MV
+        let has_temporal = candidates.iter().any(|c| c.mv_l0 == MotionVector::new(8, 4));
+        assert!(has_temporal, "Should include temporal candidate");
+    }
+
+    #[test]
+    fn test_simple_merge_derivation() {
+        let merge = SimpleMergeDerivation::new(32, 32, 16, 16, 5);
+        let candidates = merge.derive_candidates().unwrap();
+
+        // Should have 5 zero candidates
+        assert_eq!(candidates.len(), 5);
+        assert!(candidates.iter().all(|c| c.mv_l0.is_zero()));
+    }
+
+    #[test]
     fn test_merge_candidate_list_builder() {
         let builder = MergeCandidateListBuilder::new(5);
         let candidates = builder.build(32, 32, 16, 16).unwrap();
 
         assert!(candidates.len() <= 5);
         assert!(!candidates.is_empty());
+    }
+
+    #[test]
+    fn test_merge_candidate_list_builder_with_mv_field() {
+        let mut mv_field = create_test_mv_field(128, 128);
+
+        // Set a neighbor MV
+        mv_field.set_mv_l0(7, 11, MotionVector::new(16, 8), 0).unwrap();
+
+        let builder = MergeCandidateListBuilder::new(5);
+        let candidates = builder.build_with_mv_field(
+            32, 32, 16, 16,
+            &mv_field, None,
+            128, 128
+        ).unwrap();
+
+        assert_eq!(candidates.len(), 5);
+        // First candidate should be from the neighbor
+        assert_eq!(candidates[0].mv_l0, MotionVector::new(16, 8));
     }
 
     #[test]
@@ -780,29 +1064,24 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_derivation_combine_candidates() {
-        let merge = MergeDerivation::new(32, 32, 16, 16, 5);
-        let mut candidates = vec![
-            MergeCandidate::new(
-                MotionVector::new(16, 8),
-                MotionVector::zero(),
-                0,
-                0,
-                PredictionFlag::L0,
-            ),
-            MergeCandidate::new(
-                MotionVector::zero(),
-                MotionVector::new(20, 10),
-                0,
-                1,
-                PredictionFlag::L1,
-            ),
-        ];
+    fn test_merge_combined_bi_candidates() {
+        let mut mv_field = create_test_mv_field(128, 128);
 
-        merge.add_combined_candidates(&mut candidates).unwrap();
+        // Set up L0 candidate at A1 position (31, 47) -> block (7, 11)
+        mv_field.set_mv_l0(7, 11, MotionVector::new(16, 8), 0).unwrap();
 
-        // Should have original 2 + at least 1 combined
-        assert!(candidates.len() >= 3);
+        // Set up L1 candidate at B1 position (47, 31) -> block (11, 7)
+        mv_field.set_mv_l1(11, 7, MotionVector::new(20, 10), 0).unwrap();
+
+        let merge = MergeDerivation::new(32, 32, 16, 16, 5, &mv_field, None, 128, 128);
+        let candidates = merge.derive_candidates().unwrap();
+
+        // Should have 5 candidates
+        assert_eq!(candidates.len(), 5);
+
+        // Check that we have distinct candidates
+        assert_eq!(candidates[0].mv_l0, MotionVector::new(16, 8));
+        assert_eq!(candidates[1].mv_l1, MotionVector::new(20, 10));
     }
 
     #[test]

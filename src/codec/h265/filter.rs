@@ -36,7 +36,7 @@ impl DeblockingFilter {
     /// Create a new deblocking filter
     pub fn new(bit_depth: u8) -> Result<Self> {
         if bit_depth != 8 && bit_depth != 10 && bit_depth != 12 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Invalid bit depth: {}",
                 bit_depth
             )));
@@ -52,7 +52,7 @@ impl DeblockingFilter {
     /// Set beta offset (-6 to 6)
     pub fn set_beta_offset(&mut self, offset: i8) -> Result<()> {
         if offset < -6 || offset > 6 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Beta offset must be -6 to 6, got {}",
                 offset
             )));
@@ -64,7 +64,7 @@ impl DeblockingFilter {
     /// Set tc offset (-6 to 6)
     pub fn set_tc_offset(&mut self, offset: i8) -> Result<()> {
         if offset < -6 || offset > 6 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Tc offset must be -6 to 6, got {}",
                 offset
             )));
@@ -91,7 +91,7 @@ impl DeblockingFilter {
 
         // Check if we have enough samples (need 4 on each side, 4 rows minimum)
         if samples.len() < stride * 4 {
-            return Err(Error::InvalidData("Insufficient samples for filtering".to_string()));
+            return Err(Error::Codec("Insufficient samples for filtering".to_string()));
         }
 
         // Get thresholds
@@ -185,7 +185,7 @@ impl DeblockingFilter {
 
         // Need at least 8 rows for filtering
         if samples.len() < stride * 8 {
-            return Err(Error::InvalidData("Insufficient samples for filtering".to_string()));
+            return Err(Error::Codec("Insufficient samples for filtering".to_string()));
         }
 
         let beta = self.get_beta(qp)?;
@@ -261,7 +261,7 @@ impl DeblockingFilter {
         let qp_adjusted = (qp as i32 + self.beta_offset as i32).clamp(0, 51) as usize;
 
         if qp_adjusted >= BETA_TABLE.len() {
-            return Err(Error::InvalidData(format!("Invalid QP: {}", qp)));
+            return Err(Error::Codec(format!("Invalid QP: {}", qp)));
         }
 
         let beta = BETA_TABLE[qp_adjusted];
@@ -276,7 +276,7 @@ impl DeblockingFilter {
         let qp_adjusted = (qp as i32 + self.tc_offset as i32 + 2).clamp(0, 53) as usize;
 
         if qp_adjusted >= TC_TABLE.len() {
-            return Err(Error::InvalidData(format!("Invalid QP: {}", qp)));
+            return Err(Error::Codec(format!("Invalid QP: {}", qp)));
         }
 
         let tc = TC_TABLE[qp_adjusted];
@@ -391,7 +391,7 @@ impl SaoFilter {
     /// Create a new SAO filter
     pub fn new(bit_depth: u8) -> Result<Self> {
         if bit_depth != 8 && bit_depth != 10 && bit_depth != 12 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Invalid bit depth: {}",
                 bit_depth
             )));

@@ -377,3 +377,124 @@ fn test_mp4_read_packets() {
 
     demuxer.close().expect("Failed to close demuxer");
 }
+
+/// Test seeking in the MP4 file
+#[test]
+fn test_mp4_seek() {
+    let path = Path::new(TEST_MP4_PATH);
+    if !path.exists() {
+        eprintln!("Test file not found: {}", TEST_MP4_PATH);
+        return;
+    }
+
+    let mut demuxer = Mp4Demuxer::new();
+    demuxer.open(path).expect("Failed to open MP4 file");
+
+    // Find the video stream index
+    let video_stream = demuxer
+        .streams()
+        .iter()
+        .find(|s| s.info.media_type == MediaType::Video)
+        .expect("No video stream found");
+    let video_stream_index = video_stream.info.index;
+    let time_base = video_stream.info.time_base;
+    println!(
+        "Video stream index: {}, time_base: {:?}",
+        video_stream_index, time_base
+    );
+
+    // Read first packet to get initial state
+    let first_packet = demuxer.read_packet().expect("Failed to read first packet");
+    let first_pts = first_packet.pts;
+    println!(
+        "First packet: stream={}, pts={:?}, keyframe={}",
+        first_packet.stream_index, first_pts, first_packet.flags.keyframe
+    );
+
+    // Seek to the beginning (timestamp 0)
+    demuxer
+        .seek(video_stream_index, 0)
+        .expect("Failed to seek to beginning");
+    println!("Seeked to beginning");
+
+    // Read packet after seeking to verify we're at the start
+    let after_seek_packet = demuxer
+        .read_packet()
+        .expect("Failed to read packet after seek to beginning");
+    println!(
+        "After seek to 0: stream={}, pts={:?}, keyframe={}",
+        after_seek_packet.stream_index, after_seek_packet.pts, after_seek_packet.flags.keyframe
+    );
+
+    // Read a bunch of packets to get somewhere in the middle
+    let mut last_video_pts: i64 = 0;
+    for _ in 0..50 {
+        match demuxer.read_packet() {
+            Ok(packet) => {
+                if packet.codec_type == MediaType::Video {
+                    last_video_pts = packet.pts.value;
+                }
+            }
+            Err(Error::EndOfStream) => break,
+            Err(e) => panic!("Error reading packet: {}", e),
+        }
+    }
+    println!("After reading 50 packets, last video PTS: {}", last_video_pts);
+
+    // Seek to a timestamp we've seen before (roughly half of what we've read)
+    let seek_target = last_video_pts / 2;
+    println!("Seeking to timestamp: {}", seek_target);
+
+    demuxer
+        .seek(video_stream_index, seek_target)
+        .expect("Failed to seek to middle");
+
+    // Read packet after seeking - should be at or before the seek target (keyframe)
+    let mut found_video = false;
+    for _ in 0..10 {
+        match demuxer.read_packet() {
+            Ok(packet) => {
+                if packet.codec_type == MediaType::Video {
+                    println!(
+                        "After seek to {}: stream={}, pts={:?}, keyframe={}",
+                        seek_target, packet.stream_index, packet.pts, packet.flags.keyframe
+                    );
+                    // After seeking, the first video packet should be a keyframe
+                    assert!(
+                        packet.flags.keyframe,
+                        "First video packet after seek should be a keyframe"
+                    );
+                    // The PTS should be at or before the seek target
+                    assert!(
+                        packet.pts.value <= seek_target,
+                        "First video packet after seek should be at or before seek target"
+                    );
+                    found_video = true;
+                    break;
+                }
+            }
+            Err(Error::EndOfStream) => break,
+            Err(e) => panic!("Error reading packet after seek: {}", e),
+        }
+    }
+    assert!(found_video, "Should have found a video packet after seek");
+
+    // Test seeking to a very large timestamp (past EOF) - should seek to the last keyframe
+    let very_large_timestamp = i64::MAX / 2;
+    println!("Seeking to very large timestamp: {}", very_large_timestamp);
+
+    match demuxer.seek(video_stream_index, very_large_timestamp) {
+        Ok(()) => {
+            // This should either work and position near the end, or the binary search
+            // should find the last sample
+            println!("Seek to large timestamp succeeded");
+        }
+        Err(e) => {
+            // This is acceptable - seeking past EOF might fail
+            println!("Seek to large timestamp returned error (acceptable): {}", e);
+        }
+    }
+
+    demuxer.close().expect("Failed to close demuxer");
+    println!("MP4 seek test passed!");
+}

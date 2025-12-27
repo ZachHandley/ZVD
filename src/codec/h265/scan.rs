@@ -42,7 +42,7 @@ impl CoefficientScanner {
     /// Create a new coefficient scanner
     pub fn new(log2_size: u8, pattern: ScanPattern) -> Result<Self> {
         if log2_size < 2 || log2_size > 5 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Invalid transform size log2: {}",
                 log2_size
             )));
@@ -150,7 +150,7 @@ impl CoefficientGroupScanner {
     /// Create a new CG scanner
     pub fn new(log2_size: u8, pattern: ScanPattern) -> Result<Self> {
         if log2_size < 2 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Transform size too small for CG scanning: {}",
                 log2_size
             )));
@@ -218,7 +218,7 @@ impl SignificanceMap {
     pub fn set_significant(&mut self, x: usize, y: usize, significant: bool) -> Result<()> {
         let idx = y * self.size + x;
         if idx >= self.significant.len() {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Position out of bounds: ({}, {})",
                 x, y
             )));
@@ -273,7 +273,7 @@ impl CoefficientLevels {
     pub fn set_level(&mut self, x: usize, y: usize, level: i16) -> Result<()> {
         let idx = y * self.size + x;
         if idx >= self.levels.len() {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Position out of bounds: ({}, {})",
                 x, y
             )));

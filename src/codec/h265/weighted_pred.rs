@@ -72,7 +72,7 @@ impl WeightedPredictor {
     /// Create a new weighted predictor
     pub fn new(bit_depth: u8) -> Result<Self> {
         if bit_depth != 8 && bit_depth != 10 && bit_depth != 12 {
-            return Err(Error::InvalidData(format!(
+            return Err(Error::Codec(format!(
                 "Invalid bit depth: {}",
                 bit_depth
             )));
@@ -174,7 +174,7 @@ impl WeightedPredictor {
         // Calculate implicit weights based on temporal distance
         let total_dist = dist_l0 + dist_l1;
         if total_dist == 0 {
-            return Err(Error::InvalidData("Total distance is zero".to_string()));
+            return Err(Error::Codec("Total distance is zero".to_string()));
         }
 
         let weight_l0 = ((dist_l1 << 8) / total_dist) as i32;
@@ -206,7 +206,7 @@ impl ImplicitWeightCalc {
     pub fn calculate(dist_l0: i32, dist_l1: i32) -> Result<(i32, i32)> {
         let total = dist_l0 + dist_l1;
         if total == 0 {
-            return Err(Error::InvalidData("Total distance is zero".to_string()));
+            return Err(Error::Codec("Total distance is zero".to_string()));
         }
 
         // Fixed-point with 8-bit fractional

@@ -139,7 +139,7 @@ impl<'a> CabacDecoder<'a> {
     /// Create a new CABAC decoder
     pub fn new(data: &'a [u8]) -> Result<Self> {
         if data.is_empty() {
-            return Err(Error::InvalidData("Empty CABAC data".to_string()));
+            return Err(Error::Codec("Empty CABAC data".to_string()));
         }
 
         let mut decoder = Self {
@@ -278,6 +278,291 @@ impl<'a> CabacDecoder<'a> {
     /// Get current byte position in stream
     pub fn byte_pos(&self) -> usize {
         self.pos
+    }
+}
+
+/// H.265 CABAC context table indices for various syntax elements
+/// These define the starting context index for each syntax element
+pub mod ctx_idx {
+    /// split_cu_flag contexts (3 contexts based on depth)
+    pub const SPLIT_CU_FLAG: usize = 0;
+    /// cu_skip_flag contexts (3 contexts)
+    pub const CU_SKIP_FLAG: usize = 3;
+    /// pred_mode_flag context (1 context)
+    pub const PRED_MODE_FLAG: usize = 6;
+    /// part_mode contexts (4 contexts)
+    pub const PART_MODE: usize = 7;
+    /// prev_intra_luma_pred_flag context (1 context)
+    pub const PREV_INTRA_LUMA_PRED_FLAG: usize = 11;
+    /// intra_chroma_pred_mode context (1 context)
+    pub const INTRA_CHROMA_PRED_MODE: usize = 12;
+    /// cbf_luma contexts (2 contexts)
+    pub const CBF_LUMA: usize = 13;
+    /// cbf_chroma contexts (4 contexts)
+    pub const CBF_CHROMA: usize = 15;
+    /// split_transform_flag contexts (3 contexts)
+    pub const SPLIT_TRANSFORM_FLAG: usize = 19;
+    /// sig_coeff_group_flag contexts (4 contexts)
+    pub const SIG_COEFF_GROUP_FLAG: usize = 22;
+    /// sig_coeff_flag contexts (44 contexts)
+    pub const SIG_COEFF_FLAG: usize = 26;
+    /// coeff_abs_level_greater1_flag contexts (24 contexts)
+    pub const COEFF_ABS_LEVEL_GREATER1_FLAG: usize = 70;
+    /// coeff_abs_level_greater2_flag contexts (6 contexts)
+    pub const COEFF_ABS_LEVEL_GREATER2_FLAG: usize = 94;
+    /// Total number of contexts
+    pub const NUM_CONTEXTS: usize = 100;
+}
+
+/// H.265 CABAC context table with all context models
+#[derive(Debug, Clone)]
+pub struct CabacContexts {
+    /// Context models for all syntax elements
+    pub contexts: Vec<ContextModel>,
+}
+
+impl CabacContexts {
+    /// Create and initialize all CABAC contexts for given QP
+    pub fn new(qp: u8) -> Self {
+        let mut contexts = Vec::with_capacity(ctx_idx::NUM_CONTEXTS);
+
+        // Initialize contexts with default init values
+        // These init values are from H.265 specification tables
+
+        // split_cu_flag (3 contexts)
+        contexts.push(ContextModel::init(139, qp)); // ctxIdx 0
+        contexts.push(ContextModel::init(141, qp)); // ctxIdx 1
+        contexts.push(ContextModel::init(157, qp)); // ctxIdx 2
+
+        // cu_skip_flag (3 contexts)
+        contexts.push(ContextModel::init(197, qp)); // ctxIdx 3
+        contexts.push(ContextModel::init(185, qp)); // ctxIdx 4
+        contexts.push(ContextModel::init(201, qp)); // ctxIdx 5
+
+        // pred_mode_flag (1 context)
+        contexts.push(ContextModel::init(149, qp)); // ctxIdx 6
+
+        // part_mode (4 contexts)
+        contexts.push(ContextModel::init(154, qp)); // ctxIdx 7
+        contexts.push(ContextModel::init(139, qp)); // ctxIdx 8
+        contexts.push(ContextModel::init(154, qp)); // ctxIdx 9
+        contexts.push(ContextModel::init(154, qp)); // ctxIdx 10
+
+        // prev_intra_luma_pred_flag (1 context)
+        contexts.push(ContextModel::init(183, qp)); // ctxIdx 11
+
+        // intra_chroma_pred_mode (1 context)
+        contexts.push(ContextModel::init(152, qp)); // ctxIdx 12
+
+        // cbf_luma (2 contexts)
+        contexts.push(ContextModel::init(111, qp)); // ctxIdx 13
+        contexts.push(ContextModel::init(141, qp)); // ctxIdx 14
+
+        // cbf_chroma (4 contexts)
+        contexts.push(ContextModel::init(94, qp));  // ctxIdx 15
+        contexts.push(ContextModel::init(138, qp)); // ctxIdx 16
+        contexts.push(ContextModel::init(182, qp)); // ctxIdx 17
+        contexts.push(ContextModel::init(154, qp)); // ctxIdx 18
+
+        // split_transform_flag (3 contexts)
+        contexts.push(ContextModel::init(153, qp)); // ctxIdx 19
+        contexts.push(ContextModel::init(138, qp)); // ctxIdx 20
+        contexts.push(ContextModel::init(138, qp)); // ctxIdx 21
+
+        // sig_coeff_group_flag (4 contexts)
+        for _ in 0..4 {
+            contexts.push(ContextModel::init(91, qp));
+        }
+
+        // sig_coeff_flag (44 contexts)
+        for _ in 0..44 {
+            contexts.push(ContextModel::init(110, qp));
+        }
+
+        // coeff_abs_level_greater1_flag (24 contexts)
+        for _ in 0..24 {
+            contexts.push(ContextModel::init(140, qp));
+        }
+
+        // coeff_abs_level_greater2_flag (6 contexts)
+        for _ in 0..6 {
+            contexts.push(ContextModel::init(140, qp));
+        }
+
+        Self { contexts }
+    }
+
+    /// Get mutable reference to context at given index
+    pub fn get_mut(&mut self, idx: usize) -> &mut ContextModel {
+        &mut self.contexts[idx]
+    }
+
+    /// Reset all contexts for new slice with given QP
+    pub fn reset(&mut self, qp: u8) {
+        *self = Self::new(qp);
+    }
+}
+
+/// Extended CABAC decoder with context tables
+pub struct CabacReader<'a> {
+    /// Base CABAC decoder
+    decoder: CabacDecoder<'a>,
+    /// Context models
+    pub contexts: CabacContexts,
+}
+
+impl<'a> CabacReader<'a> {
+    /// Create a new CABAC reader with initialized contexts
+    pub fn new(data: &'a [u8], qp: u8) -> Result<Self> {
+        let decoder = CabacDecoder::new(data)?;
+        let contexts = CabacContexts::new(qp);
+        Ok(Self { decoder, contexts })
+    }
+
+    /// Decode split_cu_flag
+    ///
+    /// Returns true if the CU should be split into 4 sub-CUs
+    pub fn decode_split_cu_flag(&mut self, depth: u8, left_split: bool, above_split: bool) -> Result<bool> {
+        // Context selection based on neighbors
+        let ctx_inc = (left_split as usize) + (above_split as usize);
+        let ctx_idx = ctx_idx::SPLIT_CU_FLAG + ctx_inc;
+
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode cu_skip_flag (for inter prediction)
+    pub fn decode_cu_skip_flag(&mut self, ctx_inc: usize) -> Result<bool> {
+        let ctx_idx = ctx_idx::CU_SKIP_FLAG + ctx_inc.min(2);
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode pred_mode_flag
+    ///
+    /// Returns true for INTRA mode, false for INTER mode
+    pub fn decode_pred_mode_flag(&mut self) -> Result<bool> {
+        let ctx_idx = ctx_idx::PRED_MODE_FLAG;
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode prev_intra_luma_pred_flag
+    ///
+    /// If true, the intra mode is one of the 3 MPM (Most Probable Modes)
+    pub fn decode_prev_intra_luma_pred_flag(&mut self) -> Result<bool> {
+        let ctx_idx = ctx_idx::PREV_INTRA_LUMA_PRED_FLAG;
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode mpm_idx (0, 1, or 2)
+    ///
+    /// Indicates which of the 3 MPMs to use
+    pub fn decode_mpm_idx(&mut self) -> Result<u8> {
+        // First bin: 0 means mpm_idx=0
+        let bin0 = self.decoder.decode_bypass()?;
+        if bin0 == 0 {
+            return Ok(0);
+        }
+
+        // Second bin: 0 means mpm_idx=1, 1 means mpm_idx=2
+        let bin1 = self.decoder.decode_bypass()?;
+        Ok(if bin1 == 0 { 1 } else { 2 })
+    }
+
+    /// Decode rem_intra_luma_pred_mode (5 bits in bypass mode)
+    ///
+    /// Used when not using MPM, encodes mode index with exclusion
+    pub fn decode_rem_intra_luma_pred_mode(&mut self) -> Result<u8> {
+        let value = self.decoder.decode_bypass_bins(5)? as u8;
+        Ok(value)
+    }
+
+    /// Decode intra_chroma_pred_mode
+    ///
+    /// Returns 0-4: 0 = planar, 1 = vertical, 2 = horizontal, 3 = DC, 4 = luma mode
+    pub fn decode_intra_chroma_pred_mode(&mut self) -> Result<u8> {
+        let ctx_idx = ctx_idx::INTRA_CHROMA_PRED_MODE;
+        let bin0 = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+
+        if bin0 == 0 {
+            // Derive from luma mode (mode 4 in our encoding)
+            return Ok(4);
+        }
+
+        // Read 2 bypass bins for mode 0-3
+        let mode = self.decoder.decode_bypass_bins(2)? as u8;
+        Ok(mode)
+    }
+
+    /// Decode cbf_luma (coded block flag for luma)
+    pub fn decode_cbf_luma(&mut self, depth: u8) -> Result<bool> {
+        let ctx_idx = ctx_idx::CBF_LUMA + (depth > 0) as usize;
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode cbf_chroma (coded block flag for chroma)
+    pub fn decode_cbf_chroma(&mut self, depth: u8) -> Result<bool> {
+        let ctx_idx = ctx_idx::CBF_CHROMA + (depth.min(3) as usize);
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode split_transform_flag
+    pub fn decode_split_transform_flag(&mut self, depth: u8) -> Result<bool> {
+        let ctx_idx = ctx_idx::SPLIT_TRANSFORM_FLAG + (depth.min(2) as usize);
+        let bin = self.decoder.decode_decision(self.contexts.get_mut(ctx_idx))?;
+        Ok(bin == 1)
+    }
+
+    /// Decode a truncated unary value (used for various syntax elements)
+    pub fn decode_truncated_unary(&mut self, max_val: u32) -> Result<u32> {
+        let mut value = 0;
+        while value < max_val {
+            let bin = self.decoder.decode_bypass()?;
+            if bin == 0 {
+                break;
+            }
+            value += 1;
+        }
+        Ok(value)
+    }
+
+    /// Decode an exponential-golomb coded value (bypass mode)
+    pub fn decode_exp_golomb(&mut self, k: u8) -> Result<u32> {
+        // Prefix: count zeros until we hit a 1
+        let mut prefix = 0;
+        loop {
+            let bin = self.decoder.decode_bypass()?;
+            if bin == 1 {
+                break;
+            }
+            prefix += 1;
+        }
+
+        // Suffix: read (prefix + k) bits
+        let suffix_len = prefix + k as u32;
+        let suffix = if suffix_len > 0 {
+            self.decoder.decode_bypass_bins(suffix_len as usize)?
+        } else {
+            0
+        };
+
+        // Compute value
+        let value = ((1 << prefix) - 1 + (1 << k)) + suffix - (1 << k);
+        Ok(value)
+    }
+
+    /// Check if we've reached the end of the slice
+    pub fn decode_end_of_slice(&mut self) -> Result<bool> {
+        self.decoder.decode_terminate()
+    }
+
+    /// Get current byte position
+    pub fn byte_pos(&self) -> usize {
+        self.decoder.byte_pos()
     }
 }
 
