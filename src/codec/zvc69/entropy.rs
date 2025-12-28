@@ -39,7 +39,9 @@ use super::error::ZVC69Error;
 use constriction::stream::model::DefaultLeakyQuantizer;
 use constriction::stream::stack::DefaultAnsCoder;
 use constriction::stream::{Decode, Encode};
+use ndarray::{s, Array4, Axis};
 use probability::distribution::Gaussian;
+use rayon::prelude::*;
 
 // -------------------------------------------------------------------------
 // Constants
@@ -71,6 +73,18 @@ pub const CDF_SCALE: f64 = 65536.0;
 
 /// Tail mass for leaky quantizer (ensures non-zero probability at edges)
 pub const DEFAULT_TAIL_MASS: f64 = 1e-9;
+
+/// Default number of slices for parallel entropy coding
+pub const DEFAULT_NUM_SLICES: usize = 4;
+
+/// Minimum height per slice for parallel processing
+pub const MIN_SLICE_HEIGHT: usize = 4;
+
+/// Magic bytes for parallel bitstream format (for backwards compatibility detection)
+pub const PARALLEL_MAGIC: [u8; 4] = [b'Z', b'V', b'C', b'P'];
+
+/// Version byte for parallel bitstream format
+pub const PARALLEL_FORMAT_VERSION: u8 = 1;
 
 // -------------------------------------------------------------------------
 // Helper Functions
@@ -253,6 +267,249 @@ fn bytes_to_words(bytes: &[u8]) -> Vec<u32> {
         words.push(u32::from_le_bytes(arr));
     }
     words
+}
+
+// -------------------------------------------------------------------------
+// Parallel Entropy Coding Configuration
+// -------------------------------------------------------------------------
+
+/// Configuration for parallel entropy coding
+///
+/// Controls how latent tensors are partitioned into horizontal slices
+/// for parallel encoding/decoding across multiple threads.
+#[derive(Debug, Clone)]
+pub struct ParallelEntropyConfig {
+    /// Number of horizontal slices to partition the latent tensor into
+    /// Each slice is encoded/decoded independently in parallel
+    pub num_slices: usize,
+
+    /// Minimum height per slice (slices smaller than this won't be parallelized)
+    pub min_slice_height: usize,
+
+    /// Whether to use parallel encoding (can be disabled for debugging)
+    pub enabled: bool,
+}
+
+impl Default for ParallelEntropyConfig {
+    fn default() -> Self {
+        Self {
+            num_slices: DEFAULT_NUM_SLICES,
+            min_slice_height: MIN_SLICE_HEIGHT,
+            enabled: true,
+        }
+    }
+}
+
+impl ParallelEntropyConfig {
+    /// Create a new parallel entropy configuration
+    pub fn new(num_slices: usize) -> Self {
+        Self {
+            num_slices: num_slices.max(1),
+            ..Default::default()
+        }
+    }
+
+    /// Create configuration with parallel encoding disabled
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ..Default::default()
+        }
+    }
+
+    /// Set the number of slices
+    pub fn with_slices(mut self, num_slices: usize) -> Self {
+        self.num_slices = num_slices.max(1);
+        self
+    }
+
+    /// Set the minimum slice height
+    pub fn with_min_slice_height(mut self, min_height: usize) -> Self {
+        self.min_slice_height = min_height.max(1);
+        self
+    }
+
+    /// Calculate the effective number of slices for a given height
+    ///
+    /// Returns 1 if the height is too small for parallel processing
+    pub fn effective_slices(&self, height: usize) -> usize {
+        if !self.enabled {
+            return 1;
+        }
+
+        // Calculate maximum possible slices given minimum height constraint
+        let max_slices = height / self.min_slice_height.max(1);
+
+        // Use the smaller of requested slices or max possible
+        self.num_slices.min(max_slices).max(1)
+    }
+}
+
+/// Header for a single slice in the parallel bitstream
+///
+/// This header is written before each slice's compressed data to allow
+/// independent decoding and seeking within the bitstream.
+#[derive(Debug, Clone, Copy)]
+struct SliceHeader {
+    /// Starting row index of this slice in the original tensor
+    start_row: u32,
+    /// Number of rows in this slice
+    num_rows: u32,
+    /// Offset in bytes from the start of slice data section
+    data_offset: u32,
+    /// Size in bytes of this slice's compressed data
+    data_size: u32,
+}
+
+impl SliceHeader {
+    /// Serialize the slice header to bytes (16 bytes total)
+    fn to_bytes(&self) -> [u8; 16] {
+        let mut bytes = [0u8; 16];
+        bytes[0..4].copy_from_slice(&self.start_row.to_le_bytes());
+        bytes[4..8].copy_from_slice(&self.num_rows.to_le_bytes());
+        bytes[8..12].copy_from_slice(&self.data_offset.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.data_size.to_le_bytes());
+        bytes
+    }
+
+    /// Deserialize a slice header from bytes
+    fn from_bytes(bytes: &[u8]) -> Result<Self, ZVC69Error> {
+        if bytes.len() < 16 {
+            return Err(ZVC69Error::EntropyDecodingFailed {
+                reason: format!(
+                    "Slice header too short: expected 16 bytes, got {}",
+                    bytes.len()
+                ),
+            });
+        }
+
+        Ok(Self {
+            start_row: u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+            num_rows: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+            data_offset: u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+            data_size: u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+        })
+    }
+}
+
+/// Merge multiple slice bitstreams into a single parallel-format bitstream
+///
+/// Format:
+/// - 4 bytes: magic "ZVCP"
+/// - 1 byte: version
+/// - 1 byte: number of slices
+/// - 2 bytes: reserved (for future use)
+/// - N * 16 bytes: slice headers
+/// - Slice data concatenated
+fn merge_slice_bitstreams(
+    slice_data: Vec<(usize, usize, Vec<u8>)>, // (start_row, num_rows, data)
+) -> Result<Vec<u8>, ZVC69Error> {
+    let num_slices = slice_data.len();
+    if num_slices == 0 {
+        return Ok(Vec::new());
+    }
+
+    if num_slices > 255 {
+        return Err(ZVC69Error::EntropyEncodingFailed {
+            reason: format!("Too many slices: {} (max 255)", num_slices),
+        });
+    }
+
+    // Calculate header size
+    let header_size = 8 + num_slices * 16; // magic + version + count + reserved + headers
+
+    // Calculate data offsets
+    let mut headers = Vec::with_capacity(num_slices);
+    let mut current_offset = 0u32;
+
+    for (start_row, num_rows, data) in &slice_data {
+        headers.push(SliceHeader {
+            start_row: *start_row as u32,
+            num_rows: *num_rows as u32,
+            data_offset: current_offset,
+            data_size: data.len() as u32,
+        });
+        current_offset += data.len() as u32;
+    }
+
+    // Allocate output buffer
+    let total_size = header_size + current_offset as usize;
+    let mut output = Vec::with_capacity(total_size);
+
+    // Write magic bytes
+    output.extend_from_slice(&PARALLEL_MAGIC);
+
+    // Write version
+    output.push(PARALLEL_FORMAT_VERSION);
+
+    // Write number of slices
+    output.push(num_slices as u8);
+
+    // Write reserved bytes
+    output.extend_from_slice(&[0u8, 0u8]);
+
+    // Write slice headers
+    for header in &headers {
+        output.extend_from_slice(&header.to_bytes());
+    }
+
+    // Write slice data
+    for (_, _, data) in slice_data {
+        output.extend_from_slice(&data);
+    }
+
+    Ok(output)
+}
+
+/// Parse a parallel-format bitstream into slice headers and data
+///
+/// Returns None if the bitstream is not in parallel format (legacy format)
+fn parse_parallel_bitstream(
+    data: &[u8],
+) -> Result<Option<(Vec<SliceHeader>, &[u8])>, ZVC69Error> {
+    // Check for magic bytes
+    if data.len() < 8 {
+        return Ok(None); // Too short for parallel format, might be legacy
+    }
+
+    if data[0..4] != PARALLEL_MAGIC {
+        return Ok(None); // Not parallel format, use legacy decoding
+    }
+
+    let version = data[4];
+    if version != PARALLEL_FORMAT_VERSION {
+        return Err(ZVC69Error::EntropyDecodingFailed {
+            reason: format!(
+                "Unsupported parallel bitstream version: {} (expected {})",
+                version, PARALLEL_FORMAT_VERSION
+            ),
+        });
+    }
+
+    let num_slices = data[5] as usize;
+    // bytes 6-7 are reserved
+
+    let header_size = 8 + num_slices * 16;
+    if data.len() < header_size {
+        return Err(ZVC69Error::EntropyDecodingFailed {
+            reason: format!(
+                "Parallel bitstream truncated: expected at least {} bytes, got {}",
+                header_size,
+                data.len()
+            ),
+        });
+    }
+
+    // Parse slice headers
+    let mut headers = Vec::with_capacity(num_slices);
+    for i in 0..num_slices {
+        let header_offset = 8 + i * 16;
+        let header = SliceHeader::from_bytes(&data[header_offset..header_offset + 16])?;
+        headers.push(header);
+    }
+
+    // Return headers and pointer to slice data
+    Ok(Some((headers, &data[header_size..])))
 }
 
 // -------------------------------------------------------------------------
@@ -551,6 +808,241 @@ impl EntropyCoder {
 
         // No reverse needed: encoding in reverse + forward decoding gives correct order
         Ok(symbols)
+    }
+
+    /// Encode a 4D latent tensor in parallel using horizontal slices
+    ///
+    /// This method partitions the latent tensor along the height dimension into
+    /// independent slices, encodes each slice in parallel using Rayon, and merges
+    /// the resulting bitstreams.
+    ///
+    /// # Arguments
+    ///
+    /// * `latent` - 4D tensor of quantized latent values [N, C, H, W]
+    /// * `means` - 4D tensor of predicted means [N, C, H, W]
+    /// * `scales` - 4D tensor of predicted scales [N, C, H, W]
+    /// * `config` - Parallel encoding configuration
+    ///
+    /// # Returns
+    ///
+    /// Compressed byte stream in parallel format on success
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let config = ParallelEntropyConfig::new(4);
+    /// let compressed = coder.encode_parallel(&latent, &means, &scales, &config)?;
+    /// ```
+    pub fn encode_parallel(
+        &self,
+        latent: &Array4<f32>,
+        means: &Array4<f32>,
+        scales: &Array4<f32>,
+        config: &ParallelEntropyConfig,
+    ) -> Result<Vec<u8>, ZVC69Error> {
+        let shape = latent.shape();
+        if shape != means.shape() || shape != scales.shape() {
+            return Err(ZVC69Error::EntropyEncodingFailed {
+                reason: format!(
+                    "Shape mismatch: latent={:?}, means={:?}, scales={:?}",
+                    shape,
+                    means.shape(),
+                    scales.shape()
+                ),
+            });
+        }
+
+        let height = shape[2];
+        let effective_slices = config.effective_slices(height);
+
+        // If only one slice, fall back to sequential encoding
+        if effective_slices <= 1 {
+            let symbols: Vec<i32> = latent.iter().map(|&v| v.round() as i32).collect();
+            let means_flat: Vec<f32> = means.iter().copied().collect();
+            let scales_flat: Vec<f32> = scales.iter().copied().collect();
+
+            let mut coder = EntropyCoder::with_range(self.min_symbol, self.max_symbol);
+            return coder.encode_symbols(&symbols, &means_flat, &scales_flat);
+        }
+
+        // Calculate slice boundaries
+        let slice_height = height / effective_slices;
+        let slice_infos: Vec<(usize, usize)> = (0..effective_slices)
+            .map(|i| {
+                let start = i * slice_height;
+                let end = if i == effective_slices - 1 {
+                    height
+                } else {
+                    (i + 1) * slice_height
+                };
+                (start, end)
+            })
+            .collect();
+
+        // Encode slices in parallel
+        let min_symbol = self.min_symbol;
+        let max_symbol = self.max_symbol;
+
+        let slice_results: Vec<Result<(usize, usize, Vec<u8>), ZVC69Error>> = slice_infos
+            .par_iter()
+            .map(|&(start_row, end_row)| {
+                let num_rows = end_row - start_row;
+
+                // Extract slice from tensors
+                let latent_slice = latent.slice(s![.., .., start_row..end_row, ..]);
+                let means_slice = means.slice(s![.., .., start_row..end_row, ..]);
+                let scales_slice = scales.slice(s![.., .., start_row..end_row, ..]);
+
+                // Flatten to 1D vectors
+                let symbols: Vec<i32> = latent_slice.iter().map(|&v| v.round() as i32).collect();
+                let means_flat: Vec<f32> = means_slice.iter().copied().collect();
+                let scales_flat: Vec<f32> = scales_slice.iter().copied().collect();
+
+                // Encode this slice
+                let mut coder = EntropyCoder::with_range(min_symbol, max_symbol);
+                let compressed = coder.encode_symbols(&symbols, &means_flat, &scales_flat)?;
+
+                Ok((start_row, num_rows, compressed))
+            })
+            .collect();
+
+        // Collect results and check for errors
+        let slice_data: Vec<(usize, usize, Vec<u8>)> = slice_results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Merge slice bitstreams
+        merge_slice_bitstreams(slice_data)
+    }
+
+    /// Decode a 4D latent tensor from parallel-format compressed data
+    ///
+    /// This method handles both parallel format (with ZVCP magic header) and
+    /// legacy sequential format for backwards compatibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Compressed byte stream
+    /// * `means` - 4D tensor of predicted means [N, C, H, W]
+    /// * `scales` - 4D tensor of predicted scales [N, C, H, W]
+    ///
+    /// # Returns
+    ///
+    /// Decoded 4D latent tensor on success
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let decoded = coder.decode_parallel(&compressed, &means, &scales)?;
+    /// ```
+    pub fn decode_parallel(
+        &self,
+        data: &[u8],
+        means: &Array4<f32>,
+        scales: &Array4<f32>,
+    ) -> Result<Array4<f32>, ZVC69Error> {
+        let shape = means.shape();
+        if shape != scales.shape() {
+            return Err(ZVC69Error::EntropyDecodingFailed {
+                reason: format!(
+                    "Shape mismatch: means={:?}, scales={:?}",
+                    shape,
+                    scales.shape()
+                ),
+            });
+        }
+
+        let n = shape[0];
+        let c = shape[1];
+        let height = shape[2];
+        let width = shape[3];
+        let total_symbols = n * c * height * width;
+
+        // Try to parse as parallel format
+        match parse_parallel_bitstream(data)? {
+            Some((headers, slice_data_section)) => {
+                // Parallel format: decode slices in parallel
+                let min_symbol = self.min_symbol;
+                let max_symbol = self.max_symbol;
+
+                // Prepare slice data references
+                let slice_inputs: Vec<(&SliceHeader, &[u8])> = headers
+                    .iter()
+                    .map(|header| {
+                        let start = header.data_offset as usize;
+                        let end = start + header.data_size as usize;
+                        (header, &slice_data_section[start..end])
+                    })
+                    .collect();
+
+                // Decode slices in parallel
+                let slice_results: Vec<Result<(usize, usize, Vec<i32>), ZVC69Error>> = slice_inputs
+                    .par_iter()
+                    .map(|(header, slice_bytes)| {
+                        let start_row = header.start_row as usize;
+                        let num_rows = header.num_rows as usize;
+                        let end_row = start_row + num_rows;
+
+                        // Extract parameter slices
+                        let means_slice = means.slice(s![.., .., start_row..end_row, ..]);
+                        let scales_slice = scales.slice(s![.., .., start_row..end_row, ..]);
+
+                        let means_flat: Vec<f32> = means_slice.iter().copied().collect();
+                        let scales_flat: Vec<f32> = scales_slice.iter().copied().collect();
+                        let num_symbols = means_flat.len();
+
+                        // Decode this slice
+                        let mut coder = EntropyCoder::with_range(min_symbol, max_symbol);
+                        let symbols = coder.decode_symbols(
+                            slice_bytes,
+                            &means_flat,
+                            &scales_flat,
+                            num_symbols,
+                        )?;
+
+                        Ok((start_row, num_rows, symbols))
+                    })
+                    .collect();
+
+                // Collect results and assemble output tensor
+                let decoded_slices: Vec<(usize, usize, Vec<i32>)> = slice_results
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Create output array and fill in slices
+                let mut output = Array4::<f32>::zeros((n, c, height, width));
+                for (start_row, num_rows, symbols) in decoded_slices {
+                    let end_row = start_row + num_rows;
+                    let mut slice_view = output.slice_mut(s![.., .., start_row..end_row, ..]);
+
+                    // Copy symbols into slice
+                    for (dst, &src) in slice_view.iter_mut().zip(symbols.iter()) {
+                        *dst = src as f32;
+                    }
+                }
+
+                Ok(output)
+            }
+            None => {
+                // Legacy format: decode sequentially
+                let means_flat: Vec<f32> = means.iter().copied().collect();
+                let scales_flat: Vec<f32> = scales.iter().copied().collect();
+
+                let mut coder = EntropyCoder::with_range(self.min_symbol, self.max_symbol);
+                let symbols = coder.decode_symbols(data, &means_flat, &scales_flat, total_symbols)?;
+
+                // Reshape to 4D array
+                let output = Array4::from_shape_vec(
+                    (n, c, height, width),
+                    symbols.into_iter().map(|s| s as f32).collect(),
+                )
+                .map_err(|e| ZVC69Error::EntropyDecodingFailed {
+                    reason: format!("Failed to reshape decoded symbols: {:?}", e),
+                })?;
+
+                Ok(output)
+            }
+        }
     }
 }
 
@@ -955,6 +1447,238 @@ impl GaussianConditional {
         // No reverse needed: encoding in reverse + forward decoding gives correct order
         Ok(symbols)
     }
+
+    /// Encode a 4D latent tensor in parallel using horizontal slices
+    ///
+    /// This method partitions the latent tensor along the height dimension into
+    /// independent slices, encodes each slice in parallel using Rayon, and merges
+    /// the resulting bitstreams.
+    ///
+    /// # Arguments
+    ///
+    /// * `latent` - 4D tensor of quantized latent values [N, C, H, W]
+    /// * `means` - 4D tensor of predicted means [N, C, H, W]
+    /// * `scales` - 4D tensor of predicted scales [N, C, H, W]
+    /// * `config` - Parallel encoding configuration
+    ///
+    /// # Returns
+    ///
+    /// Compressed byte stream in parallel format on success
+    pub fn encode_parallel(
+        &self,
+        latent: &Array4<f32>,
+        means: &Array4<f32>,
+        scales: &Array4<f32>,
+        config: &ParallelEntropyConfig,
+    ) -> Result<Vec<u8>, ZVC69Error> {
+        let shape = latent.shape();
+        if shape != means.shape() || shape != scales.shape() {
+            return Err(ZVC69Error::EntropyEncodingFailed {
+                reason: format!(
+                    "GaussianConditional shape mismatch: latent={:?}, means={:?}, scales={:?}",
+                    shape,
+                    means.shape(),
+                    scales.shape()
+                ),
+            });
+        }
+
+        let height = shape[2];
+        let effective_slices = config.effective_slices(height);
+
+        // If only one slice, fall back to sequential encoding
+        if effective_slices <= 1 {
+            let latents: Vec<i32> = latent.iter().map(|&v| v.round() as i32).collect();
+            let means_flat: Vec<f32> = means.iter().copied().collect();
+            let scales_flat: Vec<f32> = scales.iter().copied().collect();
+
+            return self.encode(&latents, &means_flat, &scales_flat);
+        }
+
+        // Calculate slice boundaries
+        let slice_height = height / effective_slices;
+        let slice_infos: Vec<(usize, usize)> = (0..effective_slices)
+            .map(|i| {
+                let start = i * slice_height;
+                let end = if i == effective_slices - 1 {
+                    height
+                } else {
+                    (i + 1) * slice_height
+                };
+                (start, end)
+            })
+            .collect();
+
+        // Encode slices in parallel
+        let min_symbol = self.min_symbol;
+        let max_symbol = self.max_symbol;
+
+        let slice_results: Vec<Result<(usize, usize, Vec<u8>), ZVC69Error>> = slice_infos
+            .par_iter()
+            .map(|&(start_row, end_row)| {
+                let num_rows = end_row - start_row;
+
+                // Extract slice from tensors
+                let latent_slice = latent.slice(s![.., .., start_row..end_row, ..]);
+                let means_slice = means.slice(s![.., .., start_row..end_row, ..]);
+                let scales_slice = scales.slice(s![.., .., start_row..end_row, ..]);
+
+                // Flatten to 1D vectors
+                let latents: Vec<i32> = latent_slice.iter().map(|&v| v.round() as i32).collect();
+                let means_flat: Vec<f32> = means_slice.iter().copied().collect();
+                let scales_flat: Vec<f32> = scales_slice.iter().copied().collect();
+
+                // Create a local GaussianConditional with same parameters
+                let gc = GaussianConditional {
+                    scale_table: Vec::new(), // Not used for encode
+                    tail_mass: DEFAULT_TAIL_MASS as f32,
+                    min_symbol,
+                    max_symbol,
+                };
+
+                let compressed = gc.encode(&latents, &means_flat, &scales_flat)?;
+
+                Ok((start_row, num_rows, compressed))
+            })
+            .collect();
+
+        // Collect results and check for errors
+        let slice_data: Vec<(usize, usize, Vec<u8>)> = slice_results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Merge slice bitstreams
+        merge_slice_bitstreams(slice_data)
+    }
+
+    /// Decode a 4D latent tensor from parallel-format compressed data
+    ///
+    /// This method handles both parallel format (with ZVCP magic header) and
+    /// legacy sequential format for backwards compatibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Compressed byte stream
+    /// * `means` - 4D tensor of predicted means [N, C, H, W]
+    /// * `scales` - 4D tensor of predicted scales [N, C, H, W]
+    ///
+    /// # Returns
+    ///
+    /// Decoded 4D latent tensor on success
+    pub fn decode_parallel(
+        &self,
+        data: &[u8],
+        means: &Array4<f32>,
+        scales: &Array4<f32>,
+    ) -> Result<Array4<f32>, ZVC69Error> {
+        let shape = means.shape();
+        if shape != scales.shape() {
+            return Err(ZVC69Error::EntropyDecodingFailed {
+                reason: format!(
+                    "GaussianConditional shape mismatch: means={:?}, scales={:?}",
+                    shape,
+                    scales.shape()
+                ),
+            });
+        }
+
+        let n = shape[0];
+        let c = shape[1];
+        let height = shape[2];
+        let width = shape[3];
+        let total_symbols = n * c * height * width;
+
+        // Try to parse as parallel format
+        match parse_parallel_bitstream(data)? {
+            Some((headers, slice_data_section)) => {
+                // Parallel format: decode slices in parallel
+                let min_symbol = self.min_symbol;
+                let max_symbol = self.max_symbol;
+
+                // Prepare slice data references
+                let slice_inputs: Vec<(&SliceHeader, &[u8])> = headers
+                    .iter()
+                    .map(|header| {
+                        let start = header.data_offset as usize;
+                        let end = start + header.data_size as usize;
+                        (header, &slice_data_section[start..end])
+                    })
+                    .collect();
+
+                // Decode slices in parallel
+                let slice_results: Vec<Result<(usize, usize, Vec<i32>), ZVC69Error>> = slice_inputs
+                    .par_iter()
+                    .map(|(header, slice_bytes)| {
+                        let start_row = header.start_row as usize;
+                        let num_rows = header.num_rows as usize;
+                        let end_row = start_row + num_rows;
+
+                        // Extract parameter slices
+                        let means_slice = means.slice(s![.., .., start_row..end_row, ..]);
+                        let scales_slice = scales.slice(s![.., .., start_row..end_row, ..]);
+
+                        let means_flat: Vec<f32> = means_slice.iter().copied().collect();
+                        let scales_flat: Vec<f32> = scales_slice.iter().copied().collect();
+                        let num_symbols = means_flat.len();
+
+                        // Create a local GaussianConditional with same parameters
+                        let gc = GaussianConditional {
+                            scale_table: Vec::new(), // Not used for decode
+                            tail_mass: DEFAULT_TAIL_MASS as f32,
+                            min_symbol,
+                            max_symbol,
+                        };
+
+                        let symbols = gc.decode(
+                            slice_bytes,
+                            &means_flat,
+                            &scales_flat,
+                            num_symbols,
+                        )?;
+
+                        Ok((start_row, num_rows, symbols))
+                    })
+                    .collect();
+
+                // Collect results and assemble output tensor
+                let decoded_slices: Vec<(usize, usize, Vec<i32>)> = slice_results
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Create output array and fill in slices
+                let mut output = Array4::<f32>::zeros((n, c, height, width));
+                for (start_row, num_rows, symbols) in decoded_slices {
+                    let end_row = start_row + num_rows;
+                    let mut slice_view = output.slice_mut(s![.., .., start_row..end_row, ..]);
+
+                    // Copy symbols into slice
+                    for (dst, &src) in slice_view.iter_mut().zip(symbols.iter()) {
+                        *dst = src as f32;
+                    }
+                }
+
+                Ok(output)
+            }
+            None => {
+                // Legacy format: decode sequentially
+                let means_flat: Vec<f32> = means.iter().copied().collect();
+                let scales_flat: Vec<f32> = scales.iter().copied().collect();
+
+                let symbols = self.decode(data, &means_flat, &scales_flat, total_symbols)?;
+
+                // Reshape to 4D array
+                let output = Array4::from_shape_vec(
+                    (n, c, height, width),
+                    symbols.into_iter().map(|s| s as f32).collect(),
+                )
+                .map_err(|e| ZVC69Error::EntropyDecodingFailed {
+                    reason: format!("Failed to reshape decoded symbols: {:?}", e),
+                })?;
+
+                Ok(output)
+            }
+        }
+    }
 }
 
 impl Default for GaussianConditional {
@@ -1340,5 +2064,252 @@ mod tests {
             .unwrap();
 
         assert_eq!(symbols, decoded);
+    }
+
+    // -------------------------------------------------------------------------
+    // Parallel Entropy Coding Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parallel_entropy_config_default() {
+        let config = ParallelEntropyConfig::default();
+        assert_eq!(config.num_slices, DEFAULT_NUM_SLICES);
+        assert_eq!(config.min_slice_height, MIN_SLICE_HEIGHT);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_parallel_entropy_config_effective_slices() {
+        let config = ParallelEntropyConfig::new(4).with_min_slice_height(8);
+
+        // Height 32 -> 4 slices (32/8 = 4)
+        assert_eq!(config.effective_slices(32), 4);
+
+        // Height 16 -> 2 slices (16/8 = 2, limited by max_slices)
+        assert_eq!(config.effective_slices(16), 2);
+
+        // Height 4 -> 1 slice (too small for 4 slices of min 8)
+        assert_eq!(config.effective_slices(4), 1);
+
+        // Disabled config always returns 1
+        let disabled = ParallelEntropyConfig::disabled();
+        assert_eq!(disabled.effective_slices(1000), 1);
+    }
+
+    #[test]
+    fn test_slice_header_serialization() {
+        let header = SliceHeader {
+            start_row: 10,
+            num_rows: 20,
+            data_offset: 100,
+            data_size: 500,
+        };
+
+        let bytes = header.to_bytes();
+        let recovered = SliceHeader::from_bytes(&bytes).unwrap();
+
+        assert_eq!(header.start_row, recovered.start_row);
+        assert_eq!(header.num_rows, recovered.num_rows);
+        assert_eq!(header.data_offset, recovered.data_offset);
+        assert_eq!(header.data_size, recovered.data_size);
+    }
+
+    #[test]
+    fn test_parallel_encode_decode_roundtrip() {
+        let coder = EntropyCoder::new();
+        let config = ParallelEntropyConfig::new(4);
+
+        // Create test tensors [1, 4, 16, 16]
+        let n = 1;
+        let c = 4;
+        let h = 16;
+        let w = 16;
+
+        // Create latent values in range [-10, 10]
+        let latent_data: Vec<f32> = (0..n * c * h * w)
+            .map(|i| ((i % 21) as f32) - 10.0)
+            .collect();
+        let latent = Array4::from_shape_vec((n, c, h, w), latent_data).unwrap();
+
+        // Create means close to latent values
+        let means_data: Vec<f32> = latent.iter().map(|&v| v + 0.1).collect();
+        let means = Array4::from_shape_vec((n, c, h, w), means_data).unwrap();
+
+        // Create scales
+        let scales_data: Vec<f32> = vec![1.0; n * c * h * w];
+        let scales = Array4::from_shape_vec((n, c, h, w), scales_data).unwrap();
+
+        // Encode
+        let compressed = coder
+            .encode_parallel(&latent, &means, &scales, &config)
+            .unwrap();
+        assert!(!compressed.is_empty());
+
+        // Verify magic header
+        assert_eq!(&compressed[0..4], &PARALLEL_MAGIC);
+
+        // Decode
+        let decoded = coder.decode_parallel(&compressed, &means, &scales).unwrap();
+
+        // Verify shape
+        assert_eq!(decoded.shape(), latent.shape());
+
+        // Verify values (compare quantized values)
+        for (&orig, &dec) in latent.iter().zip(decoded.iter()) {
+            let orig_quantized = orig.round() as i32;
+            let dec_quantized = dec.round() as i32;
+            assert_eq!(orig_quantized, dec_quantized);
+        }
+    }
+
+    #[test]
+    fn test_parallel_decode_legacy_format() {
+        // Test backwards compatibility - sequential format should be decoded correctly
+        let coder = EntropyCoder::new();
+
+        let n = 1;
+        let c = 2;
+        let h = 8;
+        let w = 8;
+
+        let latent_data: Vec<f32> = (0..n * c * h * w)
+            .map(|i| ((i % 11) as f32) - 5.0)
+            .collect();
+        let latent = Array4::from_shape_vec((n, c, h, w), latent_data).unwrap();
+
+        let means_data: Vec<f32> = latent.iter().map(|&v| v + 0.05).collect();
+        let means = Array4::from_shape_vec((n, c, h, w), means_data).unwrap();
+
+        let scales_data: Vec<f32> = vec![1.5; n * c * h * w];
+        let scales = Array4::from_shape_vec((n, c, h, w), scales_data).unwrap();
+
+        // Encode sequentially (legacy format)
+        let symbols: Vec<i32> = latent.iter().map(|&v| v.round() as i32).collect();
+        let means_flat: Vec<f32> = means.iter().copied().collect();
+        let scales_flat: Vec<f32> = scales.iter().copied().collect();
+
+        let mut seq_coder = EntropyCoder::new();
+        let compressed = seq_coder
+            .encode_symbols(&symbols, &means_flat, &scales_flat)
+            .unwrap();
+
+        // Legacy format should not have ZVCP magic
+        assert_ne!(&compressed[0..4.min(compressed.len())], &PARALLEL_MAGIC);
+
+        // Decode using parallel decoder (should detect legacy format)
+        let decoded = coder.decode_parallel(&compressed, &means, &scales).unwrap();
+
+        // Verify roundtrip
+        for (&orig, &dec) in latent.iter().zip(decoded.iter()) {
+            let orig_quantized = orig.round() as i32;
+            let dec_quantized = dec.round() as i32;
+            assert_eq!(orig_quantized, dec_quantized);
+        }
+    }
+
+    #[test]
+    fn test_parallel_encode_small_height() {
+        // Test that small heights fall back to sequential encoding
+        let coder = EntropyCoder::new();
+        let config = ParallelEntropyConfig::new(8).with_min_slice_height(4);
+
+        let n = 1;
+        let c = 4;
+        let h = 2; // Too small for 8 slices with min height 4
+        let w = 16;
+
+        let latent_data: Vec<f32> = (0..n * c * h * w).map(|i| (i % 5) as f32).collect();
+        let latent = Array4::from_shape_vec((n, c, h, w), latent_data).unwrap();
+
+        let means = latent.clone();
+        let scales_data: Vec<f32> = vec![1.0; n * c * h * w];
+        let scales = Array4::from_shape_vec((n, c, h, w), scales_data).unwrap();
+
+        // Should succeed (falling back to sequential)
+        let compressed = coder
+            .encode_parallel(&latent, &means, &scales, &config)
+            .unwrap();
+
+        // Small height falls back to sequential, so no ZVCP header
+        assert_ne!(&compressed[0..4.min(compressed.len())], &PARALLEL_MAGIC);
+
+        // Decode should still work
+        let decoded = coder.decode_parallel(&compressed, &means, &scales).unwrap();
+        assert_eq!(decoded.shape(), latent.shape());
+    }
+
+    #[test]
+    fn test_gaussian_conditional_parallel_roundtrip() {
+        let gc = GaussianConditional::default();
+        let config = ParallelEntropyConfig::new(4);
+
+        let n = 1;
+        let c = 4;
+        let h = 16;
+        let w = 16;
+
+        let latent_data: Vec<f32> = (0..n * c * h * w)
+            .map(|i| ((i % 21) as f32) - 10.0)
+            .collect();
+        let latent = Array4::from_shape_vec((n, c, h, w), latent_data).unwrap();
+
+        let means_data: Vec<f32> = latent.iter().map(|&v| v + 0.1).collect();
+        let means = Array4::from_shape_vec((n, c, h, w), means_data).unwrap();
+
+        let scales_data: Vec<f32> = vec![1.0; n * c * h * w];
+        let scales = Array4::from_shape_vec((n, c, h, w), scales_data).unwrap();
+
+        let compressed = gc
+            .encode_parallel(&latent, &means, &scales, &config)
+            .unwrap();
+
+        let decoded = gc.decode_parallel(&compressed, &means, &scales).unwrap();
+
+        for (&orig, &dec) in latent.iter().zip(decoded.iter()) {
+            let orig_quantized = orig.round() as i32;
+            let dec_quantized = dec.round() as i32;
+            assert_eq!(orig_quantized, dec_quantized);
+        }
+    }
+
+    #[test]
+    fn test_merge_slice_bitstreams() {
+        let slices = vec![
+            (0, 4, vec![1u8, 2, 3, 4]),
+            (4, 4, vec![5, 6, 7]),
+            (8, 4, vec![8, 9]),
+        ];
+
+        let merged = merge_slice_bitstreams(slices).unwrap();
+
+        // Check header
+        assert_eq!(&merged[0..4], &PARALLEL_MAGIC);
+        assert_eq!(merged[4], PARALLEL_FORMAT_VERSION);
+        assert_eq!(merged[5], 3); // num_slices
+
+        // Parse it back
+        let parsed = parse_parallel_bitstream(&merged).unwrap().unwrap();
+        let (headers, data_section) = parsed;
+
+        assert_eq!(headers.len(), 3);
+        assert_eq!(headers[0].start_row, 0);
+        assert_eq!(headers[0].num_rows, 4);
+        assert_eq!(headers[0].data_size, 4);
+        assert_eq!(headers[1].data_size, 3);
+        assert_eq!(headers[2].data_size, 2);
+
+        // Verify data
+        assert_eq!(data_section.len(), 9);
+        assert_eq!(&data_section[0..4], &[1u8, 2, 3, 4]);
+        assert_eq!(&data_section[4..7], &[5u8, 6, 7]);
+        assert_eq!(&data_section[7..9], &[8u8, 9]);
+    }
+
+    #[test]
+    fn test_parse_parallel_bitstream_legacy() {
+        // Non-parallel data should return None
+        let legacy_data = vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8];
+        let result = parse_parallel_bitstream(&legacy_data).unwrap();
+        assert!(result.is_none());
     }
 }

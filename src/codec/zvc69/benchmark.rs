@@ -8,14 +8,25 @@
 //! - **1080p Encode**: 24+ fps (target: <42ms per frame)
 //! - **1080p Decode**: 30+ fps (target: <33ms per frame)
 //!
+//! ## M4 Performance Targets (RTX 3080)
+//!
+//! - **1080p Encode**: 30+ fps (target: <33ms per frame)
+//! - **1080p Decode**: 60+ fps (target: <16ms per frame)
+//! - **P99 Encode Latency**: <33ms
+//! - **P99 Decode Latency**: <16ms
+//!
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use zvd::codec::zvc69::benchmark::{benchmark_720p, run_benchmark_suite};
+//! use zvd::codec::zvc69::benchmark::{benchmark_720p, benchmark_1080p_m4, run_benchmark_suite};
 //!
 //! // Run 720p benchmark
 //! let result = benchmark_720p(100);
 //! println!("{}", result.to_table());
+//!
+//! // Run M4 1080p benchmark
+//! let m4_result = benchmark_1080p_m4(100);
+//! println!("{}", m4_result.to_table());
 //!
 //! // Run full benchmark suite
 //! let results = run_benchmark_suite();
@@ -30,6 +41,7 @@
 //! |------------|---------------|---------------|---------|
 //! | 720p       | 30 fps        | 60 fps        | <33ms   |
 //! | 1080p      | 24 fps        | 30 fps        | <42ms   |
+//! | 1080p (M4) | 30 fps        | 60 fps        | <33ms   |
 //! | 4K         | 8 fps         | 15 fps        | <125ms  |
 
 use std::time::Instant;
@@ -342,6 +354,25 @@ impl BenchmarkConfig {
         }
     }
 
+    /// Create an M4 1080p benchmark configuration
+    ///
+    /// Optimized for RTX 3080 performance validation with:
+    /// - 30+ fps encode target
+    /// - 60+ fps decode target
+    /// - P99 encode latency < 33ms
+    /// - P99 decode latency < 16ms
+    pub fn m4_1080p() -> Self {
+        BenchmarkConfig {
+            width: 1920,
+            height: 1088, // Aligned to 16
+            num_frames: 150,
+            warmup_frames: 20, // Extra warmup for stable GPU performance
+            framerate: 30.0,
+            pattern: TestPattern::Moving, // Motion pattern for realistic P-frame behavior
+            ..Default::default()
+        }
+    }
+
     /// Set the number of frames
     pub fn with_frames(mut self, frames: usize) -> Self {
         self.num_frames = frames;
@@ -413,9 +444,8 @@ fn generate_test_frame(
         TestPattern::Gradient => {
             for row in 0..height as usize {
                 for col in 0..width as usize {
-                    let y_val =
-                        ((row as f32 / height as f32 + col as f32 / width as f32) / 2.0 * 255.0)
-                            as u8;
+                    let y_val = ((row as f32 / height as f32 + col as f32 / width as f32) / 2.0
+                        * 255.0) as u8;
                     y_data[row * width as usize + col] = y_val;
                 }
             }
@@ -521,6 +551,28 @@ pub fn benchmark_1080p(num_frames: usize) -> BenchmarkResult {
 /// Benchmark results for 4K encoding/decoding
 pub fn benchmark_4k(num_frames: usize) -> BenchmarkResult {
     let config = BenchmarkConfig::preset_4k().with_frames(num_frames);
+    run_benchmark(config)
+}
+
+/// Run an M4 1080p benchmark
+///
+/// This benchmark is optimized for RTX 3080 performance validation with
+/// more aggressive targets than the standard 1080p benchmark:
+///
+/// - 30+ fps encode (vs 24 fps standard)
+/// - 60+ fps decode (vs 30 fps standard)
+/// - P99 encode latency < 33ms
+/// - P99 decode latency < 16ms
+///
+/// # Arguments
+///
+/// * `num_frames` - Number of frames to benchmark
+///
+/// # Returns
+///
+/// Benchmark results for 1080p encoding/decoding at M4 targets
+pub fn benchmark_1080p_m4(num_frames: usize) -> BenchmarkResult {
+    let config = BenchmarkConfig::m4_1080p().with_frames(num_frames);
     run_benchmark(config)
 }
 
@@ -690,7 +742,7 @@ pub fn benchmark_latency(width: u32, height: u32, num_frames: usize) -> Benchmar
         width,
         height,
         num_frames,
-        warmup_frames: 20, // More warmup for stable latency
+        warmup_frames: 20,            // More warmup for stable latency
         pattern: TestPattern::Moving, // Motion pattern for realistic P-frames
         ..Default::default()
     };
@@ -770,6 +822,98 @@ pub fn assert_latency(result: &BenchmarkResult, target_encode_ms: f64, target_de
         result.p99_decode_ms,
         target_decode_ms
     );
+}
+
+// ============================================================================
+// M4 Performance Assertions
+// ============================================================================
+
+/// Assert that the benchmark meets M4 1080p encode FPS target
+///
+/// # Panics
+///
+/// Panics if encode FPS is below 30 fps.
+pub fn assert_m4_1080p_encode_fps(result: &BenchmarkResult) {
+    assert!(
+        result.encode_fps >= M4_1080P_ENCODE_FPS_TARGET,
+        "M4 1080p encode FPS {:.1} does not meet target {:.1} fps",
+        result.encode_fps,
+        M4_1080P_ENCODE_FPS_TARGET
+    );
+}
+
+/// Assert that the benchmark meets M4 1080p decode FPS target
+///
+/// # Panics
+///
+/// Panics if decode FPS is below 60 fps.
+pub fn assert_m4_1080p_decode_fps(result: &BenchmarkResult) {
+    assert!(
+        result.decode_fps >= M4_1080P_DECODE_FPS_TARGET,
+        "M4 1080p decode FPS {:.1} does not meet target {:.1} fps",
+        result.decode_fps,
+        M4_1080P_DECODE_FPS_TARGET
+    );
+}
+
+/// Assert that the benchmark meets M4 1080p encode latency target
+///
+/// # Panics
+///
+/// Panics if P99 encode latency exceeds 33ms.
+pub fn assert_m4_1080p_encode_latency(result: &BenchmarkResult) {
+    assert!(
+        result.p99_encode_ms <= M4_1080P_ENCODE_P99_LATENCY_MS,
+        "M4 1080p encode P99 latency {:.2}ms exceeds target {:.2}ms",
+        result.p99_encode_ms,
+        M4_1080P_ENCODE_P99_LATENCY_MS
+    );
+}
+
+/// Assert that the benchmark meets M4 1080p decode latency target
+///
+/// # Panics
+///
+/// Panics if P99 decode latency exceeds 16ms.
+pub fn assert_m4_1080p_decode_latency(result: &BenchmarkResult) {
+    assert!(
+        result.p99_decode_ms <= M4_1080P_DECODE_P99_LATENCY_MS,
+        "M4 1080p decode P99 latency {:.2}ms exceeds target {:.2}ms",
+        result.p99_decode_ms,
+        M4_1080P_DECODE_P99_LATENCY_MS
+    );
+}
+
+/// Assert that the benchmark meets all M4 1080p targets
+///
+/// Combines all M4 assertions into a single comprehensive check.
+///
+/// # Panics
+///
+/// Panics if any M4 target is not met.
+pub fn assert_m4_1080p_all_targets(result: &BenchmarkResult) {
+    assert_m4_1080p_encode_fps(result);
+    assert_m4_1080p_decode_fps(result);
+    assert_m4_1080p_encode_latency(result);
+    assert_m4_1080p_decode_latency(result);
+}
+
+/// Check if benchmark meets M4 1080p targets (non-panicking version)
+///
+/// Returns a tuple of (meets_all, encode_fps_ok, decode_fps_ok, encode_latency_ok, decode_latency_ok)
+pub fn check_m4_1080p_targets(result: &BenchmarkResult) -> (bool, bool, bool, bool, bool) {
+    let encode_fps_ok = result.encode_fps >= M4_1080P_ENCODE_FPS_TARGET;
+    let decode_fps_ok = result.decode_fps >= M4_1080P_DECODE_FPS_TARGET;
+    let encode_latency_ok = result.p99_encode_ms <= M4_1080P_ENCODE_P99_LATENCY_MS;
+    let decode_latency_ok = result.p99_decode_ms <= M4_1080P_DECODE_P99_LATENCY_MS;
+    let meets_all = encode_fps_ok && decode_fps_ok && encode_latency_ok && decode_latency_ok;
+    (
+        meets_all,
+        encode_fps_ok,
+        decode_fps_ok,
+        encode_latency_ok,
+        decode_latency_ok,
+    )
 }
 
 // ============================================================================
@@ -916,7 +1060,10 @@ pub fn frame_psnr(original: &VideoFrame, reconstructed: &VideoFrame) -> f64 {
     if original.data.is_empty() || reconstructed.data.is_empty() {
         return 0.0;
     }
-    calculate_psnr(original.data[0].as_slice(), reconstructed.data[0].as_slice())
+    calculate_psnr(
+        original.data[0].as_slice(),
+        reconstructed.data[0].as_slice(),
+    )
 }
 
 // ============================================================================
@@ -928,6 +1075,24 @@ pub const FP16_PSNR_LOSS_THRESHOLD: f64 = 0.1;
 
 /// INT8 PSNR loss threshold per M3 spec (dB)
 pub const INT8_PSNR_LOSS_THRESHOLD: f64 = 0.5;
+
+// ============================================================================
+// M4 Performance Targets (RTX 3080)
+// ============================================================================
+
+/// M4 target encode FPS at 1080p (30 fps for real-time video)
+pub const M4_1080P_ENCODE_FPS_TARGET: f64 = 30.0;
+
+/// M4 target decode FPS at 1080p (60 fps for smooth playback)
+pub const M4_1080P_DECODE_FPS_TARGET: f64 = 60.0;
+
+/// M4 target P99 encode latency at 1080p (must complete within frame budget)
+/// 33ms = 1/30 fps
+pub const M4_1080P_ENCODE_P99_LATENCY_MS: f64 = 33.0;
+
+/// M4 target P99 decode latency at 1080p (must complete within frame budget)
+/// 16ms = ~1/60 fps
+pub const M4_1080P_DECODE_P99_LATENCY_MS: f64 = 16.0;
 
 /// Compare FP16 vs FP32 encoding quality
 ///
@@ -1354,9 +1519,7 @@ pub fn assert_fp16_quality(result: &PrecisionQualityResult) {
     assert!(
         result.meets_spec,
         "FP16 PSNR loss {:.3} dB exceeds threshold {:.1} dB (max observed: {:.3} dB)",
-        result.psnr_loss_db,
-        result.threshold_db,
-        result.max_psnr_loss_db
+        result.psnr_loss_db, result.threshold_db, result.max_psnr_loss_db
     );
 }
 
@@ -1369,9 +1532,7 @@ pub fn assert_int8_quality(result: &PrecisionQualityResult) {
     assert!(
         result.meets_spec,
         "INT8 PSNR loss {:.3} dB exceeds threshold {:.1} dB (max observed: {:.3} dB)",
-        result.psnr_loss_db,
-        result.threshold_db,
-        result.max_psnr_loss_db
+        result.psnr_loss_db, result.threshold_db, result.max_psnr_loss_db
     );
 }
 
@@ -1513,6 +1674,16 @@ mod tests {
         let config = BenchmarkConfig::preset_4k();
         assert_eq!(config.width, 3840);
         assert_eq!(config.height, 2160);
+    }
+
+    #[test]
+    fn test_benchmark_config_m4_1080p() {
+        let config = BenchmarkConfig::m4_1080p();
+        assert_eq!(config.width, 1920);
+        assert_eq!(config.height, 1088);
+        assert_eq!(config.num_frames, 150);
+        assert_eq!(config.warmup_frames, 20);
+        assert_eq!(config.pattern, TestPattern::Moving);
     }
 
     #[test]
@@ -1740,6 +1911,146 @@ mod tests {
         result.p99_decode_ms = 14.0;
 
         assert_latency(&result, 33.0, 16.0);
+    }
+
+    // ── M4 Target Constants Tests ──
+
+    #[test]
+    fn test_m4_target_constants() {
+        assert!((M4_1080P_ENCODE_FPS_TARGET - 30.0).abs() < 0.001);
+        assert!((M4_1080P_DECODE_FPS_TARGET - 60.0).abs() < 0.001);
+        assert!((M4_1080P_ENCODE_P99_LATENCY_MS - 33.0).abs() < 0.001);
+        assert!((M4_1080P_DECODE_P99_LATENCY_MS - 16.0).abs() < 0.001);
+    }
+
+    // ── M4 Assertion Tests ──
+
+    #[test]
+    fn test_assert_m4_1080p_encode_fps_pass() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.encode_fps = 35.0;
+
+        // Should not panic
+        assert_m4_1080p_encode_fps(&result);
+    }
+
+    #[test]
+    #[should_panic(expected = "M4 1080p encode FPS")]
+    fn test_assert_m4_1080p_encode_fps_fail() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.encode_fps = 25.0;
+
+        assert_m4_1080p_encode_fps(&result);
+    }
+
+    #[test]
+    fn test_assert_m4_1080p_decode_fps_pass() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.decode_fps = 65.0;
+
+        // Should not panic
+        assert_m4_1080p_decode_fps(&result);
+    }
+
+    #[test]
+    #[should_panic(expected = "M4 1080p decode FPS")]
+    fn test_assert_m4_1080p_decode_fps_fail() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.decode_fps = 55.0;
+
+        assert_m4_1080p_decode_fps(&result);
+    }
+
+    #[test]
+    fn test_assert_m4_1080p_encode_latency_pass() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.p99_encode_ms = 30.0;
+
+        // Should not panic
+        assert_m4_1080p_encode_latency(&result);
+    }
+
+    #[test]
+    #[should_panic(expected = "M4 1080p encode P99 latency")]
+    fn test_assert_m4_1080p_encode_latency_fail() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.p99_encode_ms = 40.0;
+
+        assert_m4_1080p_encode_latency(&result);
+    }
+
+    #[test]
+    fn test_assert_m4_1080p_decode_latency_pass() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.p99_decode_ms = 14.0;
+
+        // Should not panic
+        assert_m4_1080p_decode_latency(&result);
+    }
+
+    #[test]
+    #[should_panic(expected = "M4 1080p decode P99 latency")]
+    fn test_assert_m4_1080p_decode_latency_fail() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.p99_decode_ms = 20.0;
+
+        assert_m4_1080p_decode_latency(&result);
+    }
+
+    #[test]
+    fn test_assert_m4_1080p_all_targets_pass() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.encode_fps = 35.0;
+        result.decode_fps = 65.0;
+        result.p99_encode_ms = 30.0;
+        result.p99_decode_ms = 14.0;
+
+        // Should not panic
+        assert_m4_1080p_all_targets(&result);
+    }
+
+    #[test]
+    fn test_check_m4_1080p_targets() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.encode_fps = 35.0;
+        result.decode_fps = 65.0;
+        result.p99_encode_ms = 30.0;
+        result.p99_decode_ms = 14.0;
+
+        let (meets_all, encode_fps_ok, decode_fps_ok, encode_latency_ok, decode_latency_ok) =
+            check_m4_1080p_targets(&result);
+
+        assert!(meets_all);
+        assert!(encode_fps_ok);
+        assert!(decode_fps_ok);
+        assert!(encode_latency_ok);
+        assert!(decode_latency_ok);
+    }
+
+    #[test]
+    fn test_check_m4_1080p_targets_partial_fail() {
+        let mut result = BenchmarkResult::new(1920, 1088);
+        result.encode_fps = 25.0; // Fails
+        result.decode_fps = 65.0;
+        result.p99_encode_ms = 30.0;
+        result.p99_decode_ms = 14.0;
+
+        let (meets_all, encode_fps_ok, decode_fps_ok, encode_latency_ok, decode_latency_ok) =
+            check_m4_1080p_targets(&result);
+
+        assert!(!meets_all);
+        assert!(!encode_fps_ok);
+        assert!(decode_fps_ok);
+        assert!(encode_latency_ok);
+        assert!(decode_latency_ok);
+    }
+
+    #[test]
+    fn test_benchmark_1080p_m4_small() {
+        let result = benchmark_1080p_m4(5);
+        assert_eq!(result.resolution, (1920, 1088));
+        assert_eq!(result.num_frames, 5);
+        assert!(result.encode_fps > 0.0);
     }
 
     // ── Memory and Bitrate Tests ──
@@ -2086,6 +2397,9 @@ mod tests {
         }
 
         // Verify we got results
-        assert!(!results.is_empty(), "Should have precision validation results");
+        assert!(
+            !results.is_empty(),
+            "Should have precision validation results"
+        );
     }
 }

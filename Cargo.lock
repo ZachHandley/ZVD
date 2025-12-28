@@ -3473,6 +3473,7 @@ dependencies = [
  "dav1d",
  "hound",
  "image",
+ "libc",
  "matroska-demuxer",
  "mkv-element",
  "mp4",

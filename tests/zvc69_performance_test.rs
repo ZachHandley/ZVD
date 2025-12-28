@@ -35,8 +35,12 @@
 #[cfg(feature = "zvc69")]
 mod performance_tests {
     use zvd_lib::codec::zvc69::benchmark::{
-        assert_latency, assert_realtime, benchmark_720p, benchmark_latency, BenchmarkConfig,
-        BenchmarkResult, TestPattern,
+        assert_latency, assert_m4_1080p_all_targets, assert_m4_1080p_decode_fps,
+        assert_m4_1080p_decode_latency, assert_m4_1080p_encode_fps, assert_m4_1080p_encode_latency,
+        assert_realtime, benchmark_1080p_m4, benchmark_720p, benchmark_latency,
+        check_m4_1080p_targets, BenchmarkConfig, BenchmarkResult, TestPattern,
+        M4_1080P_DECODE_FPS_TARGET, M4_1080P_DECODE_P99_LATENCY_MS, M4_1080P_ENCODE_FPS_TARGET,
+        M4_1080P_ENCODE_P99_LATENCY_MS,
     };
 
     // ============================================================================
@@ -66,6 +70,9 @@ mod performance_tests {
     /// Warmup frames to exclude from measurements
     const WARMUP_FRAMES: usize = 20;
 
+    /// Number of frames for M4 1080p benchmarks
+    const M4_1080P_BENCHMARK_FRAMES: usize = 150;
+
     // ============================================================================
     // Helper Functions
     // ============================================================================
@@ -88,7 +95,10 @@ mod performance_tests {
         println!("  P50:        {:.2} ms", result.p50_encode_ms);
         println!("  P95:        {:.2} ms", result.p95_encode_ms);
         println!("  P99:        {:.2} ms", result.p99_encode_ms);
-        println!("  Min/Max:    {:.2}/{:.2} ms", result.min_encode_ms, result.max_encode_ms);
+        println!(
+            "  Min/Max:    {:.2}/{:.2} ms",
+            result.min_encode_ms, result.max_encode_ms
+        );
         println!("----------------------------------------");
         println!("DECODE:");
         println!("  FPS:        {:.1} fps", result.decode_fps);
@@ -96,7 +106,10 @@ mod performance_tests {
         println!("  P50:        {:.2} ms", result.p50_decode_ms);
         println!("  P95:        {:.2} ms", result.p95_decode_ms);
         println!("  P99:        {:.2} ms", result.p99_decode_ms);
-        println!("  Min/Max:    {:.2}/{:.2} ms", result.min_decode_ms, result.max_decode_ms);
+        println!(
+            "  Min/Max:    {:.2}/{:.2} ms",
+            result.min_decode_ms, result.max_decode_ms
+        );
         println!("----------------------------------------");
         println!("Bitrate:      {:.2} kbps", result.bitrate_kbps);
         println!("BPP:          {:.4}", result.bpp);
@@ -352,8 +365,7 @@ mod performance_tests {
             ..Default::default()
         };
 
-        let result =
-            zvd_lib::codec::zvc69::benchmark::run_benchmark(config);
+        let result = zvd_lib::codec::zvc69::benchmark::run_benchmark(config);
         print_benchmark_summary(&result, "M3 720p Sustained Performance (500 frames)");
 
         // Sustained performance should still meet targets
@@ -380,6 +392,176 @@ mod performance_tests {
 
         println!(
             "PASS: Sustained {} frames - encode {:.1} fps, decode {:.1} fps",
+            SUSTAINED_FRAMES, result.encode_fps, result.decode_fps
+        );
+    }
+
+    // ============================================================================
+    // M4 1080p Performance Tests (RTX 3080 Targets)
+    // ============================================================================
+
+    /// Test that 1080p encoding meets M4 target of 30 fps
+    ///
+    /// This test verifies that the ZVC69 encoder can encode 1080p video frames
+    /// at a sustained rate of at least 30 frames per second on RTX 3080 hardware.
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_encode_fps() {
+        let result = benchmark_1080p_m4(M4_1080P_BENCHMARK_FRAMES);
+        print_benchmark_summary(&result, "M4 1080p Encode FPS");
+
+        assert_m4_1080p_encode_fps(&result);
+
+        println!(
+            "PASS: M4 1080p encode FPS {:.1} >= target {:.1}",
+            result.encode_fps, M4_1080P_ENCODE_FPS_TARGET
+        );
+    }
+
+    /// Test that 1080p decoding meets M4 target of 60 fps
+    ///
+    /// This test verifies that the ZVC69 decoder can decode 1080p video frames
+    /// at a sustained rate of at least 60 frames per second on RTX 3080 hardware.
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_decode_fps() {
+        let result = benchmark_1080p_m4(M4_1080P_BENCHMARK_FRAMES);
+        print_benchmark_summary(&result, "M4 1080p Decode FPS");
+
+        assert_m4_1080p_decode_fps(&result);
+
+        println!(
+            "PASS: M4 1080p decode FPS {:.1} >= target {:.1}",
+            result.decode_fps, M4_1080P_DECODE_FPS_TARGET
+        );
+    }
+
+    /// Test that 1080p encode P99 latency meets M4 target of < 33ms
+    ///
+    /// This test verifies that 99% of encode operations complete within 33ms,
+    /// ensuring consistent real-time encoding performance at 1080p.
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_encode_latency() {
+        let result = benchmark_1080p_m4(LATENCY_BENCHMARK_FRAMES);
+        print_benchmark_summary(&result, "M4 1080p Encode Latency");
+
+        assert_m4_1080p_encode_latency(&result);
+
+        println!(
+            "PASS: M4 1080p encode P99 {:.2}ms <= target {:.2}ms",
+            result.p99_encode_ms, M4_1080P_ENCODE_P99_LATENCY_MS
+        );
+    }
+
+    /// Test that 1080p decode P99 latency meets M4 target of < 16ms
+    ///
+    /// This test verifies that 99% of decode operations complete within 16ms,
+    /// ensuring consistent smooth playback at 60fps for 1080p content.
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_decode_latency() {
+        let result = benchmark_1080p_m4(LATENCY_BENCHMARK_FRAMES);
+        print_benchmark_summary(&result, "M4 1080p Decode Latency");
+
+        assert_m4_1080p_decode_latency(&result);
+
+        println!(
+            "PASS: M4 1080p decode P99 {:.2}ms <= target {:.2}ms",
+            result.p99_decode_ms, M4_1080P_DECODE_P99_LATENCY_MS
+        );
+    }
+
+    /// Test that all M4 1080p targets are met simultaneously
+    ///
+    /// Comprehensive test that verifies all four M4 performance requirements:
+    /// - 30+ fps encode
+    /// - 60+ fps decode
+    /// - P99 encode latency < 33ms
+    /// - P99 decode latency < 16ms
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_all_targets() {
+        let result = benchmark_1080p_m4(M4_1080P_BENCHMARK_FRAMES);
+        print_benchmark_summary(&result, "M4 1080p All Targets");
+
+        // Use the comprehensive assertion
+        assert_m4_1080p_all_targets(&result);
+
+        println!(
+            "PASS: M4 1080p meets all targets - encode {:.1} fps, decode {:.1} fps, P99 encode {:.2}ms, P99 decode {:.2}ms",
+            result.encode_fps, result.decode_fps, result.p99_encode_ms, result.p99_decode_ms
+        );
+    }
+
+    /// Test M4 1080p with safety margin for regression detection
+    ///
+    /// Uses 10% margin below targets to catch performance regressions early.
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_regression_margin() {
+        let result = benchmark_1080p_m4(M4_1080P_BENCHMARK_FRAMES);
+        print_benchmark_summary(&result, "M4 1080p Regression Margin");
+
+        // Apply 10% safety margin
+        let encode_fps_with_margin = M4_1080P_ENCODE_FPS_TARGET * 1.1;
+        let decode_fps_with_margin = M4_1080P_DECODE_FPS_TARGET * 1.1;
+        let encode_latency_with_margin = M4_1080P_ENCODE_P99_LATENCY_MS * 0.9;
+        let decode_latency_with_margin = M4_1080P_DECODE_P99_LATENCY_MS * 0.9;
+
+        // Check with margin (warning, not failure)
+        if result.encode_fps < encode_fps_with_margin {
+            println!(
+                "WARNING: M4 1080p encode FPS {:.1} below 10% margin threshold {:.1}",
+                result.encode_fps, encode_fps_with_margin
+            );
+        }
+        if result.decode_fps < decode_fps_with_margin {
+            println!(
+                "WARNING: M4 1080p decode FPS {:.1} below 10% margin threshold {:.1}",
+                result.decode_fps, decode_fps_with_margin
+            );
+        }
+        if result.p99_encode_ms > encode_latency_with_margin {
+            println!(
+                "WARNING: M4 1080p encode P99 {:.2}ms above 10% margin threshold {:.2}ms",
+                result.p99_encode_ms, encode_latency_with_margin
+            );
+        }
+        if result.p99_decode_ms > decode_latency_with_margin {
+            println!(
+                "WARNING: M4 1080p decode P99 {:.2}ms above 10% margin threshold {:.2}ms",
+                result.p99_decode_ms, decode_latency_with_margin
+            );
+        }
+
+        // Hard assertion on actual targets
+        let (meets_all, _, _, _, _) = check_m4_1080p_targets(&result);
+        assert!(
+            meets_all,
+            "M4 1080p regression: one or more targets not met"
+        );
+    }
+
+    /// Test sustained M4 1080p performance over 500 frames
+    ///
+    /// Verifies performance remains stable under prolonged operation
+    /// without thermal throttling or memory pressure degradation.
+    #[test]
+    #[ignore]
+    fn test_m4_1080p_sustained_performance() {
+        const SUSTAINED_FRAMES: usize = 500;
+
+        let config = BenchmarkConfig::m4_1080p().with_frames(SUSTAINED_FRAMES);
+
+        let result = zvd_lib::codec::zvc69::benchmark::run_benchmark(config);
+        print_benchmark_summary(&result, "M4 1080p Sustained Performance (500 frames)");
+
+        // Sustained performance should still meet all M4 targets
+        assert_m4_1080p_all_targets(&result);
+
+        println!(
+            "PASS: M4 1080p sustained {} frames - encode {:.1} fps, decode {:.1} fps",
             SUSTAINED_FRAMES, result.encode_fps, result.decode_fps
         );
     }

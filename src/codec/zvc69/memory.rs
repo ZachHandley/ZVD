@@ -213,6 +213,16 @@ pub struct PoolConfig {
 
     /// Enable zero-initialization of new buffers
     pub zero_init: bool,
+
+    /// Enable pinned (page-locked) memory for faster GPU transfers
+    ///
+    /// When enabled, buffers are allocated as pinned memory which cannot be
+    /// swapped out by the OS. This enables faster DMA transfers to/from GPU
+    /// memory but uses more system resources.
+    ///
+    /// Note: This is a hint - actual pinning depends on platform support.
+    /// On systems without GPU or pinning support, this flag is ignored.
+    pub pinned_memory: bool,
 }
 
 impl PoolConfig {
@@ -227,6 +237,7 @@ impl PoolConfig {
             latent_channels: 192,
             hyperprior_channels: 128,
             zero_init: true,
+            pinned_memory: false,
         }
     }
 
@@ -254,6 +265,7 @@ impl PoolConfig {
             latent_channels: 192,
             hyperprior_channels: 128,
             zero_init: true,
+            pinned_memory: false,
         }
     }
 
@@ -268,6 +280,7 @@ impl PoolConfig {
             latent_channels: 192,
             hyperprior_channels: 128,
             zero_init: true,
+            pinned_memory: false,
         }
     }
 
@@ -282,6 +295,69 @@ impl PoolConfig {
             latent_channels: 192,
             hyperprior_channels: 128,
             zero_init: true,
+            pinned_memory: false,
+        }
+    }
+
+    /// Preset for 1080p real-time encoding (1920x1088 - aligned to 16)
+    ///
+    /// Optimized for sustained real-time encoding at 1080p:
+    /// - Higher initial capacity (6) to avoid allocation during encoding
+    /// - Higher max capacity (12) for burst handling
+    /// - Zero-init disabled for faster buffer allocation
+    /// - Pinned memory disabled by default (enable with `with_pinned_memory`)
+    ///
+    /// Use with `FramePool::prewarm_1080p()` to pre-allocate all buffers before encoding.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::memory::{FramePool, PoolConfig};
+    ///
+    /// let config = PoolConfig::preset_1080p_realtime();
+    /// let pool = FramePool::new(config);
+    /// pool.prewarm_1080p(); // Pre-allocate all buffers
+    /// ```
+    pub fn preset_1080p_realtime() -> Self {
+        PoolConfig {
+            initial_capacity: 6,
+            max_capacity: 12,
+            frame_width: 1920,
+            frame_height: 1088,
+            channels: 3,
+            latent_channels: 192,
+            hyperprior_channels: 128,
+            zero_init: false,
+            pinned_memory: false,
+        }
+    }
+
+    /// Preset for 1080p real-time encoding with pinned memory for GPU acceleration
+    ///
+    /// Same as `preset_1080p_realtime()` but with pinned memory enabled for
+    /// faster GPU DMA transfers. Use this when encoding with TensorRT or
+    /// other GPU-accelerated neural networks.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::memory::{FramePool, PoolConfig};
+    ///
+    /// let config = PoolConfig::preset_1080p_realtime_gpu();
+    /// let pool = FramePool::new(config);
+    /// pool.prewarm_1080p(); // Pre-allocate all pinned buffers
+    /// ```
+    pub fn preset_1080p_realtime_gpu() -> Self {
+        PoolConfig {
+            initial_capacity: 6,
+            max_capacity: 12,
+            frame_width: 1920,
+            frame_height: 1088,
+            channels: 3,
+            latent_channels: 192,
+            hyperprior_channels: 128,
+            zero_init: false,
+            pinned_memory: true,
         }
     }
 
@@ -296,6 +372,7 @@ impl PoolConfig {
             latent_channels: 192,
             hyperprior_channels: 128,
             zero_init: true,
+            pinned_memory: false,
         }
     }
 
@@ -320,6 +397,16 @@ impl PoolConfig {
     /// Set zero initialization
     pub fn with_zero_init(mut self, zero_init: bool) -> Self {
         self.zero_init = zero_init;
+        self
+    }
+
+    /// Enable or disable pinned memory for GPU transfers
+    ///
+    /// Pinned memory enables faster DMA transfers between CPU and GPU
+    /// but uses more system resources and may impact system stability
+    /// if overused.
+    pub fn with_pinned_memory(mut self, pinned: bool) -> Self {
+        self.pinned_memory = pinned;
         self
     }
 
@@ -780,6 +867,93 @@ impl FramePool {
                 stats.allocations += 1;
                 stats.total_bytes_allocated += latent_size * std::mem::size_of::<f32>();
                 available.push((latent_shape, latent_data));
+            }
+        }
+
+        stats.current_available = available.len();
+    }
+
+    /// Pre-warm the pool for 1080p real-time encoding
+    ///
+    /// Pre-allocates all buffers needed for sustained 1080p encoding:
+    /// - 6 frame buffers (1920x1088x3 = ~25 MB each)
+    /// - 6 latent buffers (120x68x192 = ~6 MB each)
+    /// - 6 hyperprior buffers (30x17x128 = ~260 KB each)
+    ///
+    /// Total memory: ~186 MB for a fully pre-warmed pool.
+    ///
+    /// This ensures zero allocations during steady-state encoding,
+    /// which is critical for real-time performance.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::memory::{FramePool, PoolConfig};
+    ///
+    /// let config = PoolConfig::preset_1080p_realtime();
+    /// let pool = FramePool::new(config);
+    /// pool.prewarm_1080p();
+    ///
+    /// // Now the pool is ready for real-time encoding
+    /// assert!(pool.available_count() >= 12);
+    /// ```
+    pub fn prewarm_1080p(&self) {
+        let frame_shape = self.inner.config.frame_shape();
+        let latent_shape = self.inner.config.latent_shape();
+        let hyperprior_shape = self.inner.config.hyperprior_shape();
+
+        let mut available = self.inner.available.lock().unwrap();
+        let mut stats = self.inner.stats.lock().unwrap();
+
+        // Pre-allocate 6 sets of buffers (frame + latent + hyperprior)
+        let sets_to_allocate = 6;
+        for _ in 0..sets_to_allocate {
+            if available.len() >= self.inner.config.max_capacity {
+                break;
+            }
+
+            // Pre-allocate frame buffer
+            let frame_size = frame_shape.num_elements();
+            let frame_data = if self.inner.config.zero_init {
+                vec![0.0; frame_size]
+            } else {
+                let mut v = Vec::with_capacity(frame_size);
+                // SAFETY: We will initialize before use, skipping zero-init for speed
+                unsafe { v.set_len(frame_size) };
+                v
+            };
+            stats.allocations += 1;
+            stats.total_bytes_allocated += frame_size * std::mem::size_of::<f32>();
+            available.push((frame_shape, frame_data));
+
+            // Pre-allocate latent buffer
+            if available.len() < self.inner.config.max_capacity {
+                let latent_size = latent_shape.num_elements();
+                let latent_data = if self.inner.config.zero_init {
+                    vec![0.0; latent_size]
+                } else {
+                    let mut v = Vec::with_capacity(latent_size);
+                    unsafe { v.set_len(latent_size) };
+                    v
+                };
+                stats.allocations += 1;
+                stats.total_bytes_allocated += latent_size * std::mem::size_of::<f32>();
+                available.push((latent_shape, latent_data));
+            }
+
+            // Pre-allocate hyperprior buffer
+            if available.len() < self.inner.config.max_capacity {
+                let hyper_size = hyperprior_shape.num_elements();
+                let hyper_data = if self.inner.config.zero_init {
+                    vec![0.0; hyper_size]
+                } else {
+                    let mut v = Vec::with_capacity(hyper_size);
+                    unsafe { v.set_len(hyper_size) };
+                    v
+                };
+                stats.allocations += 1;
+                stats.total_bytes_allocated += hyper_size * std::mem::size_of::<f32>();
+                available.push((hyperprior_shape, hyper_data));
             }
         }
 
@@ -1289,6 +1463,39 @@ mod tests {
         assert_eq!(config.frame_width, 1920);
         assert_eq!(config.frame_height, 1088);
         assert_eq!(config.initial_capacity, 3);
+        assert!(config.zero_init);
+        assert!(!config.pinned_memory);
+    }
+
+    #[test]
+    fn test_pool_config_preset_1080p_realtime() {
+        let config = PoolConfig::preset_1080p_realtime();
+        assert_eq!(config.frame_width, 1920);
+        assert_eq!(config.frame_height, 1088);
+        assert_eq!(config.initial_capacity, 6);
+        assert_eq!(config.max_capacity, 12);
+        assert!(!config.zero_init); // No zero-init for speed
+        assert!(!config.pinned_memory);
+    }
+
+    #[test]
+    fn test_pool_config_preset_1080p_realtime_gpu() {
+        let config = PoolConfig::preset_1080p_realtime_gpu();
+        assert_eq!(config.frame_width, 1920);
+        assert_eq!(config.frame_height, 1088);
+        assert_eq!(config.initial_capacity, 6);
+        assert_eq!(config.max_capacity, 12);
+        assert!(!config.zero_init);
+        assert!(config.pinned_memory); // Pinned for GPU
+    }
+
+    #[test]
+    fn test_pool_config_with_pinned_memory() {
+        let config = PoolConfig::preset_1080p().with_pinned_memory(true);
+        assert!(config.pinned_memory);
+
+        let config = PoolConfig::preset_1080p_realtime_gpu().with_pinned_memory(false);
+        assert!(!config.pinned_memory);
     }
 
     #[test]
@@ -1463,6 +1670,45 @@ mod tests {
         pool.prewarm(4);
 
         assert!(pool.available_count() >= 4);
+    }
+
+    #[test]
+    fn test_frame_pool_prewarm_1080p() {
+        // Use realtime preset with initial_capacity=0 to test prewarm_1080p
+        let config = PoolConfig::preset_1080p_realtime().with_initial_capacity(0);
+        let pool = FramePool::new(config);
+
+        assert_eq!(pool.available_count(), 0);
+
+        pool.prewarm_1080p();
+
+        // Should have pre-allocated up to max_capacity (12) buffers
+        // 6 sets of (frame + latent + hyperprior) = 18, but capped at max_capacity
+        assert!(pool.available_count() >= 6);
+        assert!(pool.available_count() <= 12);
+
+        // Check memory was allocated
+        let stats = pool.stats();
+        assert!(stats.total_bytes_allocated > 0);
+        assert!(stats.allocations >= 6);
+    }
+
+    #[test]
+    fn test_frame_pool_prewarm_1080p_no_zero_init() {
+        // Verify that prewarm_1080p respects zero_init=false
+        let config = PoolConfig::preset_1080p_realtime().with_initial_capacity(0);
+        assert!(!config.zero_init);
+
+        let pool = FramePool::new(config);
+        pool.prewarm_1080p();
+
+        // Should have buffers available
+        assert!(pool.available_count() > 0);
+
+        // Acquire a buffer - it should not be zero-initialized
+        // (but this is hard to verify without reading uninitialized memory)
+        let buf = pool.acquire();
+        assert!(buf.len() > 0);
     }
 
     #[test]

@@ -193,6 +193,7 @@
 
 pub mod benchmark;
 pub mod bitstream;
+pub mod comparison;
 pub mod config;
 pub mod decoder;
 pub mod encoder;
@@ -324,8 +325,78 @@ pub use benchmark::{
     INT8_PSNR_LOSS_THRESHOLD,
 };
 
+// Codec comparison types
+pub use comparison::{
+    assert_av1_target, assert_h265_target, bd_psnr, bd_rate, compare_with_av1, compare_with_h265,
+    generate_comparison_report, quick_comparison, CodecComparison, CodecPerformance, RDPoint,
+    TARGET_BDRATE_VS_AV1, TARGET_BDRATE_VS_H265,
+};
+
 // Re-export profile macro
 pub use crate::profile;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prelude
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Prelude module for convenient glob imports.
+///
+/// This module provides the most commonly used types and traits for ZVC69
+/// encoding and decoding. Use this for quick setup:
+///
+/// ```rust,ignore
+/// use zvd::codec::zvc69::prelude::*;
+///
+/// // Create encoder with common preset
+/// let encoder = ZVC69Encoder::realtime_1080p()?;
+///
+/// // Create decoder
+/// let decoder = ZVC69Decoder::new()?;
+/// ```
+///
+/// # Included Items
+///
+/// **Encoder/Decoder**
+/// - [`ZVC69Encoder`] - Neural video encoder
+/// - [`ZVC69Decoder`] - Neural video decoder
+/// - [`EncoderStats`] - Encoding statistics
+/// - [`DecoderStats`] - Decoding statistics
+///
+/// **Configuration**
+/// - [`ZVC69Config`] - Encoder configuration
+/// - [`ZVC69ConfigBuilder`] - Builder for configuration
+/// - [`Quality`] - Quality levels Q1-Q8
+/// - [`Preset`] - Speed presets (Ultrafast to Veryslow)
+///
+/// **Frame Types**
+/// - [`EncodedFrame`] - Result of encoding
+/// - [`DecodedFrame`] - Result of decoding
+/// - [`FrameType`] - I/P/B frame types
+///
+/// **Error Handling**
+/// - [`ZVC69Error`] - Codec-specific errors
+pub mod prelude {
+    // Core encoder/decoder types
+    pub use super::{ZVC69Encoder, ZVC69Decoder};
+
+    // Result types
+    pub use super::{EncodedFrame, DecodedFrame, EncoderStats, DecoderStats};
+
+    // Configuration
+    pub use super::{ZVC69Config, ZVC69ConfigBuilder, Quality, Preset, RateControlMode};
+
+    // Bitstream types (commonly needed)
+    pub use super::{FrameType, ColorSpace};
+
+    // Error types
+    pub use super::ZVC69Error;
+
+    // Helper functions
+    pub use super::{is_valid_resolution, align_dimensions, estimate_bitrate};
+
+    // Re-export Result for convenience
+    pub use crate::error::Result;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants

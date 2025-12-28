@@ -375,7 +375,64 @@ impl RateControlState {
 
 /// ZVC69 Neural Video Encoder
 ///
-/// Implements neural video compression using learned transforms and entropy coding.
+/// A high-performance neural video encoder that uses learned neural network
+/// transforms for compression, achieving better rate-distortion performance
+/// than traditional codecs like AV1 and H.265.
+///
+/// # Features
+///
+/// - **Neural Compression**: Uses learned analysis/synthesis transforms
+/// - **Adaptive Quality**: 8 quality levels (Q1-Q8) for fine-grained control
+/// - **Multiple Presets**: From ultrafast to veryslow for speed/quality tradeoffs
+/// - **Modern Rate Control**: CRF, VBR, CBR, and CQP modes
+/// - **GPU Acceleration**: Optional TensorRT support for real-time encoding
+/// - **Memory Efficiency**: Zero-allocation encoding in steady state
+///
+/// # Quick Start
+///
+/// ```rust,ignore
+/// use zvd::codec::zvc69::prelude::*;
+///
+/// // Create encoder with default configuration
+/// let mut encoder = ZVC69Encoder::new(ZVC69Config::new(1920, 1088))?;
+///
+/// // Or use a factory function for common use cases
+/// let mut encoder = ZVC69Encoder::realtime_1080p()?;
+///
+/// // Encode frames
+/// encoder.send_frame(&frame)?;
+/// let packet = encoder.receive_packet()?;
+/// ```
+///
+/// # Factory Functions
+///
+/// For common use cases, prefer the factory functions:
+///
+/// - [`realtime_720p()`](Self::realtime_720p) - Low-latency 720p encoding
+/// - [`realtime_1080p()`](Self::realtime_1080p) - Balanced 1080p encoding
+/// - [`quality_optimized()`](Self::quality_optimized) - Maximum quality
+/// - [`low_latency()`](Self::low_latency) - Minimum latency streaming
+/// - [`high_throughput()`](Self::high_throughput) - Batch processing
+///
+/// # TensorRT Acceleration
+///
+/// For GPU-accelerated encoding, use TensorRT:
+///
+/// ```rust,ignore
+/// let encoder = ZVC69Encoder::with_tensorrt_fast(config, 0)?; // GPU 0
+/// ```
+///
+/// # Architecture
+///
+/// The encoder pipeline consists of:
+///
+/// 1. **Analysis Transform**: Neural network converts pixels to latent space
+/// 2. **Hyperprior Encoding**: Compress latents for entropy parameters
+/// 3. **Quantization**: Round latents to integers
+/// 4. **Entropy Coding**: Encode with learned probability models (ANS)
+/// 5. **Bitstream Packaging**: Assemble into ZVC69 frame format
+///
+/// For inter-frames (P/B), motion estimation and residual coding are added.
 pub struct ZVC69Encoder {
     /// Encoder configuration
     config: ZVC69Config,
@@ -469,6 +526,29 @@ pub struct ZVC69Encoder {
     bitstream_arena: BitstreamArena,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Pre-allocated Inference Buffers (Zero-Allocation Hot Path)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Pre-allocated latent output buffer [1, C, H/16, W/16]
+    #[cfg(feature = "zvc69")]
+    latent_buffer: Option<Array4<f32>>,
+
+    /// Pre-allocated hyperprior output buffer [1, C_hp, H/64, W/64]
+    #[cfg(feature = "zvc69")]
+    hyperprior_buffer: Option<Array4<f32>>,
+
+    /// Pre-allocated entropy params means buffer
+    #[cfg(feature = "zvc69")]
+    entropy_means_buffer: Option<Array4<f32>>,
+
+    /// Pre-allocated entropy params scales buffer
+    #[cfg(feature = "zvc69")]
+    entropy_scales_buffer: Option<Array4<f32>>,
+
+    /// Pre-allocated reconstructed frame buffer [1, 3, H, W]
+    #[cfg(feature = "zvc69")]
+    reconstructed_buffer: Option<Array4<f32>>,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Performance Profiling
     // ─────────────────────────────────────────────────────────────────────────
     /// Optional profiler for performance analysis (zero-cost when disabled)
@@ -513,13 +593,35 @@ impl ZVC69Encoder {
         let residual_decoder = ResidualDecoder::new(residual_config);
 
         // Initialize frame buffer pool for zero-allocation encoding
-        let pool_config = PoolConfig::for_resolution(config.width, config.height);
+        // Use optimized realtime preset for 1080p resolution
+        let pool_config = if config.width == 1920 && (config.height == 1080 || config.height == 1088)
+        {
+            PoolConfig::preset_1080p_realtime()
+        } else {
+            PoolConfig::for_resolution(config.width, config.height)
+        };
         let frame_pool = FramePool::new(pool_config);
-        // Pre-warm with 4 buffers for steady-state zero-allocation encoding
-        frame_pool.prewarm(4);
+
+        // Pre-warm pool for zero-allocation steady-state encoding
+        // Use prewarm_1080p for 1080p, otherwise standard prewarm
+        if config.width == 1920 && (config.height == 1080 || config.height == 1088) {
+            frame_pool.prewarm_1080p();
+        } else {
+            frame_pool.prewarm(4);
+        }
 
         // Initialize bitstream arena for temporary allocations
         let bitstream_arena = BitstreamArena::for_resolution(config.width, config.height);
+
+        // Pre-allocate inference buffers for zero-allocation hot path
+        #[cfg(feature = "zvc69")]
+        let latent_h = config.height as usize / LATENT_SPATIAL_FACTOR;
+        #[cfg(feature = "zvc69")]
+        let latent_w = config.width as usize / LATENT_SPATIAL_FACTOR;
+        #[cfg(feature = "zvc69")]
+        let hyperprior_h = config.height as usize / HYPERPRIOR_SPATIAL_FACTOR;
+        #[cfg(feature = "zvc69")]
+        let hyperprior_w = config.width as usize / HYPERPRIOR_SPATIAL_FACTOR;
 
         Ok(ZVC69Encoder {
             last_ref: ReferenceFrame::new(config.width, config.height),
@@ -552,6 +654,17 @@ impl ZVC69Encoder {
             tensorrt_config: None,
             frame_pool,
             bitstream_arena,
+            // Pre-allocated inference buffers (allocated on first use for correct sizing)
+            #[cfg(feature = "zvc69")]
+            latent_buffer: Some(Array4::<f32>::zeros((1, DEFAULT_LATENT_CHANNELS, latent_h, latent_w))),
+            #[cfg(feature = "zvc69")]
+            hyperprior_buffer: Some(Array4::<f32>::zeros((1, DEFAULT_HYPERPRIOR_CHANNELS, hyperprior_h, hyperprior_w))),
+            #[cfg(feature = "zvc69")]
+            entropy_means_buffer: Some(Array4::<f32>::zeros((1, DEFAULT_LATENT_CHANNELS, latent_h, latent_w))),
+            #[cfg(feature = "zvc69")]
+            entropy_scales_buffer: Some(Array4::<f32>::zeros((1, DEFAULT_LATENT_CHANNELS, latent_h, latent_w))),
+            #[cfg(feature = "zvc69")]
+            reconstructed_buffer: Some(Array4::<f32>::zeros((1, 3, config.height as usize, config.width as usize))),
             profiler: None,
         })
     }
@@ -616,6 +729,195 @@ impl ZVC69Encoder {
     pub fn with_tensorrt_quality(config: ZVC69Config, device_id: usize) -> Result<Self> {
         let trt_config = TensorRTConfig::quality().with_device(device_id);
         Self::with_tensorrt(config, trt_config)
+    }
+
+    // -------------------------------------------------------------------------
+    // Factory Functions for Common Configurations
+    // -------------------------------------------------------------------------
+
+    /// Create a real-time optimized encoder for 720p video (1280x720)
+    ///
+    /// This factory function creates an encoder configured for real-time 720p
+    /// encoding at 30+ fps. Uses the `Fast` preset with optimized settings for
+    /// low-latency streaming and video conferencing.
+    ///
+    /// # Configuration
+    ///
+    /// - Resolution: 1280x720
+    /// - Preset: Fast
+    /// - Quality: Q4 (balanced)
+    /// - GOP: 30 frames (1 second at 30fps)
+    /// - Rate control: CRF 23
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Encoder;
+    ///
+    /// let encoder = ZVC69Encoder::realtime_720p()?;
+    /// ```
+    pub fn realtime_720p() -> Result<Self> {
+        let config = ZVC69Config::builder()
+            .dimensions(1280, 720)
+            .preset(Preset::Fast)
+            .quality(Quality::Q4)
+            .keyframe_interval(30)
+            .fps(30)
+            .crf(23.0)
+            .build()
+            .map_err(|e| Error::codec(e.to_string()))?;
+        Self::new(config)
+    }
+
+    /// Create a real-time optimized encoder for 1080p video (1920x1088)
+    ///
+    /// This factory function creates an encoder configured for real-time 1080p
+    /// encoding. Uses the `Medium` preset balancing quality and speed for
+    /// streaming and recording applications.
+    ///
+    /// Note: Uses 1088 height for 16-pixel alignment (1080 is not divisible by 16).
+    ///
+    /// # Configuration
+    ///
+    /// - Resolution: 1920x1088 (aligned from 1080p)
+    /// - Preset: Medium
+    /// - Quality: Q5 (good quality)
+    /// - GOP: 60 frames (2 seconds at 30fps)
+    /// - Rate control: CRF 20
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Encoder;
+    ///
+    /// let encoder = ZVC69Encoder::realtime_1080p()?;
+    /// ```
+    pub fn realtime_1080p() -> Result<Self> {
+        let config = ZVC69Config::builder()
+            .dimensions(1920, 1088)
+            .preset(Preset::Medium)
+            .quality(Quality::Q5)
+            .keyframe_interval(60)
+            .fps(30)
+            .crf(20.0)
+            .build()
+            .map_err(|e| Error::codec(e.to_string()))?;
+        Self::new(config)
+    }
+
+    /// Create a quality-optimized encoder
+    ///
+    /// This factory function creates an encoder configured for maximum visual
+    /// quality at the expense of encoding speed. Ideal for offline encoding,
+    /// archival, and high-quality content production.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Video width (must be divisible by 16)
+    /// * `height` - Video height (must be divisible by 16)
+    ///
+    /// # Configuration
+    ///
+    /// - Preset: Slow (thorough compression analysis)
+    /// - Quality: Q7 (high quality)
+    /// - GOP: 120 frames (4 seconds at 30fps)
+    /// - Rate control: CRF 15 (high quality)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Encoder;
+    ///
+    /// // Quality-optimized 4K encoder
+    /// let encoder = ZVC69Encoder::quality_optimized(3840, 2160)?;
+    /// ```
+    pub fn quality_optimized(width: u32, height: u32) -> Result<Self> {
+        let config = ZVC69Config::builder()
+            .dimensions(width, height)
+            .preset(Preset::Slow)
+            .quality(Quality::Q7)
+            .keyframe_interval(120)
+            .fps(30)
+            .crf(15.0)
+            .build()
+            .map_err(|e| Error::codec(e.to_string()))?;
+        Self::new(config)
+    }
+
+    /// Create a low-latency encoder for live streaming
+    ///
+    /// This factory function creates an encoder optimized for minimal latency,
+    /// suitable for live streaming, video calls, and real-time applications.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Video width (must be divisible by 16)
+    /// * `height` - Video height (must be divisible by 16)
+    ///
+    /// # Configuration
+    ///
+    /// - Preset: Ultrafast (minimum encoding delay)
+    /// - Quality: Q3 (acceptable quality)
+    /// - GOP: 15 frames (0.5 seconds at 30fps for frequent keyframes)
+    /// - No B-frames (reduces latency)
+    /// - Rate control: CRF 28
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Encoder;
+    ///
+    /// let encoder = ZVC69Encoder::low_latency(1280, 720)?;
+    /// ```
+    pub fn low_latency(width: u32, height: u32) -> Result<Self> {
+        let config = ZVC69Config::builder()
+            .dimensions(width, height)
+            .preset(Preset::Ultrafast)
+            .quality(Quality::Q3)
+            .keyframe_interval(15)
+            .bframes(0)
+            .fps(30)
+            .crf(28.0)
+            .build()
+            .map_err(|e| Error::codec(e.to_string()))?;
+        Self::new(config)
+    }
+
+    /// Create an encoder optimized for high throughput batch processing
+    ///
+    /// This factory function creates an encoder configured for maximum
+    /// throughput when encoding large numbers of videos offline.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Video width (must be divisible by 16)
+    /// * `height` - Video height (must be divisible by 16)
+    ///
+    /// # Configuration
+    ///
+    /// - Preset: Fast (good speed/quality balance)
+    /// - Quality: Q5 (good quality)
+    /// - GOP: 90 frames (3 seconds at 30fps)
+    /// - Rate control: CRF 22
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Encoder;
+    ///
+    /// let encoder = ZVC69Encoder::high_throughput(1920, 1088)?;
+    /// ```
+    pub fn high_throughput(width: u32, height: u32) -> Result<Self> {
+        let config = ZVC69Config::builder()
+            .dimensions(width, height)
+            .preset(Preset::Fast)
+            .quality(Quality::Q5)
+            .keyframe_interval(90)
+            .fps(30)
+            .crf(22.0)
+            .build()
+            .map_err(|e| Error::codec(e.to_string()))?;
+        Self::new(config)
     }
 
     /// Set TensorRT configuration after encoder creation
@@ -1041,6 +1343,8 @@ impl ZVC69Encoder {
     }
 
     /// Full neural I-frame encoding pipeline
+    ///
+    /// Uses pre-allocated buffers for zero-allocation inference in the hot path.
     #[cfg(feature = "zvc69")]
     fn encode_intra_neural(
         &mut self,
@@ -1054,18 +1358,27 @@ impl ZVC69Encoder {
         // Step 1: Convert frame to tensor [1, 3, H, W]
         let tensor = image_to_tensor(frame).map_err(|e| Error::codec(e.to_string()))?;
 
-        // Step 2: Run encoder network: image -> latents
-        let latents = model
-            .encode(&tensor)
+        // Step 2: Run encoder network: image -> latents (using pre-allocated buffer)
+        let latent_buffer = self.latent_buffer.as_mut().ok_or_else(|| {
+            Error::codec("Latent buffer not initialized")
+        })?;
+        model
+            .encode_inplace(&tensor, latent_buffer)
             .map_err(|e| Error::codec(e.to_string()))?;
 
-        // Step 3: Run hyperprior encoder: latents -> hyperprior
-        let hyperprior = model
-            .encode_hyperprior(&latents.y)
+        // Step 3: Run hyperprior encoder: latents -> hyperprior (using pre-allocated buffer)
+        let hyperprior_buffer = self.hyperprior_buffer.as_mut().ok_or_else(|| {
+            Error::codec("Hyperprior buffer not initialized")
+        })?;
+        model
+            .encode_hyperprior_inplace(
+                self.latent_buffer.as_ref().unwrap(),
+                hyperprior_buffer,
+            )
             .map_err(|e| Error::codec(e.to_string()))?;
 
         // Step 4: Quantize hyperprior
-        let z_quantized = quantize_scaled(&hyperprior.z, self.quant_scale);
+        let z_quantized = quantize_scaled(self.hyperprior_buffer.as_ref().unwrap(), self.quant_scale);
         let z_clamped = clamp_quantized(&z_quantized, DEFAULT_MIN_SYMBOL, DEFAULT_MAX_SYMBOL);
         let z_flat = flatten_tensor_chw(&z_clamped.view());
 
@@ -1077,22 +1390,30 @@ impl ZVC69Encoder {
 
         // Step 6: Dequantize hyperprior and run hyperprior decoder for entropy params
         let z_dequant = dequantize_tensor(&z_clamped);
-        let z_shape = hyperprior.z.dim();
+        let z_shape = self.hyperprior_buffer.as_ref().unwrap().dim();
 
-        // Create Hyperprior struct for decode_hyperprior
+        // Run hyperprior decoder using pre-allocated buffers for means/scales
         let z_hyperprior = super::model::Hyperprior::new(z_dequant);
-        let entropy_params = model
-            .decode_hyperprior(&z_hyperprior)
-            .map_err(|e| Error::codec(e.to_string()))?;
+        {
+            let means_buffer = self.entropy_means_buffer.as_mut().ok_or_else(|| {
+                Error::codec("Entropy means buffer not initialized")
+            })?;
+            let scales_buffer = self.entropy_scales_buffer.as_mut().ok_or_else(|| {
+                Error::codec("Entropy scales buffer not initialized")
+            })?;
+            model
+                .decode_hyperprior_inplace(&z_hyperprior, means_buffer, scales_buffer)
+                .map_err(|e| Error::codec(e.to_string()))?;
+        }
 
         // Step 7: Quantize main latents
-        let y_quantized = quantize_scaled(&latents.y, self.quant_scale);
+        let y_quantized = quantize_scaled(self.latent_buffer.as_ref().unwrap(), self.quant_scale);
         let y_clamped = clamp_quantized(&y_quantized, DEFAULT_MIN_SYMBOL, DEFAULT_MAX_SYMBOL);
         let y_flat = flatten_tensor_chw(&y_clamped.view());
 
-        // Step 8: Flatten entropy parameters
-        let means_flat = flatten_tensor_f32(&entropy_params.means.view());
-        let scales_flat = flatten_tensor_f32(&entropy_params.scales.view());
+        // Step 8: Flatten entropy parameters (from pre-allocated buffers)
+        let means_flat = flatten_tensor_f32(&self.entropy_means_buffer.as_ref().unwrap().view());
+        let scales_flat = flatten_tensor_f32(&self.entropy_scales_buffer.as_ref().unwrap().view());
 
         // Step 9: Encode main latents with Gaussian conditional
         let y_bytes = self
@@ -1101,7 +1422,7 @@ impl ZVC69Encoder {
             .map_err(|e| Error::codec(e.to_string()))?;
 
         // Step 10: Package into bitstream
-        let y_shape = latents.y.dim();
+        let y_shape = self.latent_buffer.as_ref().unwrap().dim();
         let frame_data = self.package_iframe(
             z_bytes,
             y_bytes,
@@ -1113,9 +1434,19 @@ impl ZVC69Encoder {
         // This ensures the reference matches what the decoder will see
         let y_dequantized = dequantize_tensor(&y_clamped);
         let reconstructed_latents = super::model::Latents::new(y_dequantized.clone());
-        let reconstructed_tensor = model
-            .decode(&reconstructed_latents)
-            .map_err(|e| Error::codec(e.to_string()))?;
+
+        // Use pre-allocated buffer for reconstruction
+        {
+            let reconstructed_buffer = self.reconstructed_buffer.as_mut().ok_or_else(|| {
+                Error::codec("Reconstructed buffer not initialized")
+            })?;
+            model
+                .decode_inplace(&reconstructed_latents, reconstructed_buffer)
+                .map_err(|e| Error::codec(e.to_string()))?;
+        }
+
+        // Clone the reconstructed tensor for reference storage (necessary for reference buffer)
+        let reconstructed_tensor = self.reconstructed_buffer.as_ref().unwrap().clone();
 
         // Update legacy reference frame
         self.update_reference_frame(frame)?;

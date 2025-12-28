@@ -122,6 +122,9 @@ rayon = "1.10"
 # Memory management
 parking_lot = "0.12"
 
+# Low-level system bindings for pinned memory
+libc = "0.2"
+
 # ZVC69 Neural Codec Dependencies
 # constriction - ANS entropy coding for learned compression
 constriction = "0.4"

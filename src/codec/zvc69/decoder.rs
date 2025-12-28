@@ -46,7 +46,7 @@ use super::config::{Quality, ZVC69Config};
 use super::entropy::{EntropyCoder, FactorizedPrior, GaussianConditional};
 use super::error::ZVC69Error;
 use super::memory::{BitstreamArena, BufferShape, FramePool, PoolConfig, PooledBuffer};
-use super::model::{tensor_to_image, Hyperprior, Latents, NeuralModel, NeuralModelConfig};
+use super::model::{tensor_to_image, Hyperprior, Latents, NeuralModel, NeuralModelConfig, LATENT_SPATIAL_FACTOR};
 use super::motion::{decode_motion, MotionConfig, MotionEstimator, MotionField};
 use super::profiler::{stages, Profiler, TimingFrameType};
 use super::quantize::{dequantize_scaled, unflatten_tensor};
@@ -377,7 +377,73 @@ impl Default for DecoderReferenceBuffer {
 
 /// ZVC69 Neural Video Decoder
 ///
-/// Implements neural video decompression using learned synthesis transforms.
+/// A high-performance neural video decoder that uses learned neural network
+/// transforms for decompression, reconstructing high-quality video from the
+/// compressed ZVC69 bitstream.
+///
+/// # Features
+///
+/// - **Neural Decompression**: Uses learned synthesis transforms
+/// - **I/P/B Frame Support**: Full GOP structure decoding
+/// - **GPU Acceleration**: Optional TensorRT support for real-time decoding
+/// - **Memory Efficiency**: Zero-allocation decoding in steady state
+/// - **Reference Management**: Automatic reference frame handling
+///
+/// # Quick Start
+///
+/// ```rust,ignore
+/// use zvd::codec::zvc69::prelude::*;
+///
+/// // Create decoder
+/// let mut decoder = ZVC69Decoder::new()?;
+///
+/// // Or pre-initialize with known dimensions
+/// let mut decoder = ZVC69Decoder::realtime_1080p()?;
+///
+/// // Decode packets
+/// decoder.send_packet(&packet)?;
+/// let frame = decoder.receive_frame()?;
+/// ```
+///
+/// # Factory Functions
+///
+/// For common use cases, prefer the factory functions:
+///
+/// - [`realtime_720p()`](Self::realtime_720p) - Pre-warmed for 720p
+/// - [`realtime_1080p()`](Self::realtime_1080p) - Pre-warmed for 1080p
+/// - [`quality_optimized()`](Self::quality_optimized) - Maximum quality
+/// - [`low_latency()`](Self::low_latency) - Minimum latency streaming
+///
+/// # TensorRT Acceleration
+///
+/// For GPU-accelerated decoding, use TensorRT:
+///
+/// ```rust,ignore
+/// let decoder = ZVC69Decoder::with_tensorrt_fast(0)?; // GPU 0
+/// ```
+///
+/// # Architecture
+///
+/// The decoder pipeline consists of:
+///
+/// 1. **Bitstream Parsing**: Extract entropy-coded data and metadata
+/// 2. **Entropy Decoding**: Decode quantized latents using learned priors
+/// 3. **Dequantization**: Inverse quantization with trained parameters
+/// 4. **Synthesis Transform**: Neural network converts latents to pixels
+/// 5. **Motion Compensation**: Apply decoded motion for inter-frames
+///
+/// # Lazy Initialization
+///
+/// The decoder can be created without knowing the video dimensions. It will
+/// automatically initialize on the first keyframe:
+///
+/// ```rust,ignore
+/// let mut decoder = ZVC69Decoder::new()?;
+/// assert!(!decoder.is_initialized());
+///
+/// decoder.send_packet(&keyframe_packet)?;
+/// assert!(decoder.is_initialized());
+/// ```
 pub struct ZVC69Decoder {
     /// Current video dimensions
     width: u32,
@@ -451,6 +517,21 @@ pub struct ZVC69Decoder {
     bitstream_arena: BitstreamArena,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Pre-allocated Inference Buffers (Zero-Allocation Hot Path)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Pre-allocated entropy params means buffer
+    #[cfg(feature = "zvc69")]
+    entropy_means_buffer: Option<Array4<f32>>,
+
+    /// Pre-allocated entropy params scales buffer
+    #[cfg(feature = "zvc69")]
+    entropy_scales_buffer: Option<Array4<f32>>,
+
+    /// Pre-allocated reconstructed frame buffer [1, 3, H, W]
+    #[cfg(feature = "zvc69")]
+    reconstructed_buffer: Option<Array4<f32>>,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Performance Profiling
     // ─────────────────────────────────────────────────────────────────────────
     /// Optional profiler for performance analysis (zero-cost when disabled)
@@ -501,6 +582,13 @@ impl ZVC69Decoder {
             // Memory pooling (initialized on first frame with known dimensions)
             frame_pool: None,
             bitstream_arena,
+            // Pre-allocated inference buffers (initialized on first frame with known dimensions)
+            #[cfg(feature = "zvc69")]
+            entropy_means_buffer: None,
+            #[cfg(feature = "zvc69")]
+            entropy_scales_buffer: None,
+            #[cfg(feature = "zvc69")]
+            reconstructed_buffer: None,
             profiler: None,
         })
     }
@@ -571,6 +659,90 @@ impl ZVC69Decoder {
     pub fn with_tensorrt_quality(device_id: usize) -> Result<Self> {
         let trt_config = TensorRTConfig::quality().with_device(device_id);
         Self::with_tensorrt(trt_config)
+    }
+
+    // -------------------------------------------------------------------------
+    // Factory Functions for Common Configurations
+    // -------------------------------------------------------------------------
+
+    /// Create a real-time optimized decoder for 720p video (1280x720)
+    ///
+    /// This factory function creates a decoder pre-configured for real-time 720p
+    /// decoding at 60+ fps. Memory pools are pre-warmed for zero-allocation
+    /// steady-state decoding.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Decoder;
+    ///
+    /// let decoder = ZVC69Decoder::realtime_720p()?;
+    /// ```
+    pub fn realtime_720p() -> Result<Self> {
+        Self::with_dimensions(1280, 720)
+    }
+
+    /// Create a real-time optimized decoder for 1080p video (1920x1088)
+    ///
+    /// This factory function creates a decoder pre-configured for real-time 1080p
+    /// decoding. Memory pools are pre-warmed with the optimized 1080p preset for
+    /// maximum performance.
+    ///
+    /// Note: Uses 1088 height for 16-pixel alignment.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Decoder;
+    ///
+    /// let decoder = ZVC69Decoder::realtime_1080p()?;
+    /// ```
+    pub fn realtime_1080p() -> Result<Self> {
+        Self::with_dimensions(1920, 1088)
+    }
+
+    /// Create a quality-optimized decoder
+    ///
+    /// This factory function creates a decoder configured for maximum visual
+    /// quality. Suitable for professional applications where quality is more
+    /// important than latency.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Expected video width (must be divisible by 16)
+    /// * `height` - Expected video height (must be divisible by 16)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Decoder;
+    ///
+    /// // Quality-optimized 4K decoder
+    /// let decoder = ZVC69Decoder::quality_optimized(3840, 2160)?;
+    /// ```
+    pub fn quality_optimized(width: u32, height: u32) -> Result<Self> {
+        Self::with_dimensions(width, height)
+    }
+
+    /// Create a low-latency decoder for live streaming
+    ///
+    /// This factory function creates a decoder optimized for minimal latency,
+    /// suitable for live streaming, video calls, and real-time applications.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Expected video width (must be divisible by 16)
+    /// * `height` - Expected video height (must be divisible by 16)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use zvd::codec::zvc69::ZVC69Decoder;
+    ///
+    /// let decoder = ZVC69Decoder::low_latency(1280, 720)?;
+    /// ```
+    pub fn low_latency(width: u32, height: u32) -> Result<Self> {
+        Self::with_dimensions(width, height)
     }
 
     /// Set TensorRT configuration after decoder creation
@@ -721,11 +893,48 @@ impl ZVC69Decoder {
         self.reference_buffer.clear();
 
         // Initialize frame pool for this resolution with pre-warming
-        let pool_config = PoolConfig::for_resolution(width, height);
+        // Use optimized realtime preset for 1080p resolution
+        let pool_config = if width == 1920 && (height == 1080 || height == 1088) {
+            PoolConfig::preset_1080p_realtime()
+        } else {
+            PoolConfig::for_resolution(width, height)
+        };
         let frame_pool = FramePool::new(pool_config);
-        // Pre-warm with 4 buffers for zero-allocation steady-state decoding
-        frame_pool.prewarm(4);
+
+        // Pre-warm pool for zero-allocation steady-state decoding
+        // Use prewarm_1080p for 1080p, otherwise standard prewarm
+        if width == 1920 && (height == 1080 || height == 1088) {
+            frame_pool.prewarm_1080p();
+        } else {
+            frame_pool.prewarm(4);
+        }
         self.frame_pool = Some(frame_pool);
+
+        // Pre-allocate inference buffers for zero-allocation hot path
+        #[cfg(feature = "zvc69")]
+        {
+            let latent_h = height as usize / LATENT_SPATIAL_FACTOR;
+            let latent_w = width as usize / LATENT_SPATIAL_FACTOR;
+
+            self.entropy_means_buffer = Some(Array4::<f32>::zeros((
+                1,
+                DEFAULT_LATENT_CHANNELS,
+                latent_h,
+                latent_w,
+            )));
+            self.entropy_scales_buffer = Some(Array4::<f32>::zeros((
+                1,
+                DEFAULT_LATENT_CHANNELS,
+                latent_h,
+                latent_w,
+            )));
+            self.reconstructed_buffer = Some(Array4::<f32>::zeros((
+                1,
+                3,
+                height as usize,
+                width as usize,
+            )));
+        }
 
         self.state = DecoderState::Ready;
     }
@@ -951,6 +1160,8 @@ impl ZVC69Decoder {
     }
 
     /// Full neural I-frame decoding pipeline
+    ///
+    /// Uses pre-allocated buffers for zero-allocation inference in the hot path.
     #[cfg(feature = "zvc69")]
     fn decode_iframe_neural(
         &mut self,
@@ -996,15 +1207,23 @@ impl ZVC69Decoder {
             metadata.quant_scale,
         )?;
 
-        // Step 6: Run hyperprior decoder: z -> entropy params
+        // Step 6: Run hyperprior decoder using pre-allocated buffers for means/scales
         let z_hyperprior = Hyperprior::new(z_tensor);
-        let entropy_params = model
-            .decode_hyperprior(&z_hyperprior)
-            .map_err(|e| Error::codec(e.to_string()))?;
+        {
+            let means_buffer = self.entropy_means_buffer.as_mut().ok_or_else(|| {
+                Error::codec("Entropy means buffer not initialized")
+            })?;
+            let scales_buffer = self.entropy_scales_buffer.as_mut().ok_or_else(|| {
+                Error::codec("Entropy scales buffer not initialized")
+            })?;
+            model
+                .decode_hyperprior_inplace(&z_hyperprior, means_buffer, scales_buffer)
+                .map_err(|e| Error::codec(e.to_string()))?;
+        }
 
-        // Step 7: Flatten entropy parameters for decoding
-        let means_flat: Vec<f32> = entropy_params.means.iter().copied().collect();
-        let scales_flat: Vec<f32> = entropy_params.scales.iter().copied().collect();
+        // Step 7: Flatten entropy parameters for decoding (from pre-allocated buffers)
+        let means_flat: Vec<f32> = self.entropy_means_buffer.as_ref().unwrap().iter().copied().collect();
+        let scales_flat: Vec<f32> = self.entropy_scales_buffer.as_ref().unwrap().iter().copied().collect();
 
         // Step 8: Decode main latents with Gaussian conditional
         let y_symbols = self
@@ -1016,11 +1235,19 @@ impl ZVC69Decoder {
         let y_tensor =
             self.unflatten_and_dequantize(&y_symbols, metadata.latent_shape, metadata.quant_scale)?;
 
-        // Step 10: Run decoder network: latents -> image
+        // Step 10: Run decoder network using pre-allocated buffer
         let latents = Latents::new(y_tensor);
-        let image_tensor = model
-            .decode(&latents)
-            .map_err(|e| Error::codec(e.to_string()))?;
+        {
+            let reconstructed_buffer = self.reconstructed_buffer.as_mut().ok_or_else(|| {
+                Error::codec("Reconstructed buffer not initialized")
+            })?;
+            model
+                .decode_inplace(&latents, reconstructed_buffer)
+                .map_err(|e| Error::codec(e.to_string()))?;
+        }
+
+        // Clone the image tensor for reference storage (necessary for reference buffer)
+        let image_tensor = self.reconstructed_buffer.as_ref().unwrap().clone();
 
         // Step 11: Convert tensor to VideoFrame
         let mut frame = tensor_to_image(&image_tensor).map_err(|e| Error::codec(e.to_string()))?;

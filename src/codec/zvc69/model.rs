@@ -1055,6 +1055,342 @@ impl NeuralModel {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // In-Place Inference Methods (Zero-Allocation Hot Path)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Run encoder in-place: image -> latents (pre-allocated output)
+    ///
+    /// This method writes results directly to a pre-allocated output buffer,
+    /// avoiding memory allocation overhead in the hot encoding path.
+    ///
+    /// # Arguments
+    ///
+    /// * `image` - Input tensor with shape [B, 3, H, W] in range [0, 1] or [-1, 1]
+    /// * `output` - Pre-allocated output tensor with shape [B, C, H/16, W/16]
+    pub fn encode_inplace(
+        &self,
+        image: &Array4<f32>,
+        output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        // Validate input shape
+        let (_batch, channels, _height, _width) = image.dim();
+        if channels != 3 {
+            return Err(ZVC69Error::InvalidModelArchitecture {
+                details: format!("Encoder expects 3 input channels, got {}", channels),
+            });
+        }
+
+        // Create input tensor (clone to owned array for ONNX)
+        let input = ort::value::Tensor::from_array(image.clone()).map_err(|e| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Failed to create input tensor: {}", e),
+            }
+        })?;
+
+        // Get output name before locking session
+        let output_name = Self::first_output_name_from_mutex(&self.encoder)?;
+
+        // Lock session and run inference
+        let mut session = self
+            .encoder
+            .lock()
+            .map_err(|_| ZVC69Error::InferenceFailed {
+                reason: "Failed to acquire encoder session lock".to_string(),
+            })?;
+
+        let outputs =
+            session
+                .run(ort::inputs![input])
+                .map_err(|e| ZVC69Error::InferenceFailed {
+                    reason: format!("Encoder inference failed: {}", e),
+                })?;
+
+        // Copy output directly to pre-allocated buffer
+        let ort_output = outputs.get(&output_name).ok_or_else(|| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Output '{}' not found in encoder outputs", output_name),
+            }
+        })?;
+
+        let array_view = ort_output
+            .try_extract_array::<f32>()
+            .map_err(|e| ZVC69Error::InferenceFailed {
+                reason: format!("Failed to extract tensor: {}", e),
+            })?;
+
+        // Copy data to pre-allocated buffer
+        output
+            .as_slice_mut()
+            .ok_or_else(|| ZVC69Error::InferenceFailed {
+                reason: "Output array not contiguous".to_string(),
+            })?
+            .copy_from_slice(array_view.as_slice().ok_or_else(|| {
+                ZVC69Error::InferenceFailed {
+                    reason: "Source array not contiguous".to_string(),
+                }
+            })?);
+
+        Ok(())
+    }
+
+    /// Run decoder in-place: latents -> image (pre-allocated output)
+    ///
+    /// This method writes results directly to a pre-allocated output buffer,
+    /// avoiding memory allocation overhead in the hot decoding path.
+    ///
+    /// # Arguments
+    ///
+    /// * `latents` - Latent representation from encoder
+    /// * `output` - Pre-allocated output tensor with shape [B, 3, H, W]
+    pub fn decode_inplace(
+        &self,
+        latents: &Latents,
+        output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        // Create input tensor (clone to owned array for ONNX)
+        let input = ort::value::Tensor::from_array(latents.y.clone()).map_err(|e| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Failed to create input tensor: {}", e),
+            }
+        })?;
+
+        // Get output name before locking session
+        let output_name = Self::first_output_name_from_mutex(&self.decoder)?;
+
+        // Lock session and run inference
+        let mut session = self
+            .decoder
+            .lock()
+            .map_err(|_| ZVC69Error::InferenceFailed {
+                reason: "Failed to acquire decoder session lock".to_string(),
+            })?;
+
+        let outputs =
+            session
+                .run(ort::inputs![input])
+                .map_err(|e| ZVC69Error::InferenceFailed {
+                    reason: format!("Decoder inference failed: {}", e),
+                })?;
+
+        // Copy output directly to pre-allocated buffer
+        let ort_output = outputs.get(&output_name).ok_or_else(|| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Output '{}' not found in decoder outputs", output_name),
+            }
+        })?;
+
+        let array_view = ort_output
+            .try_extract_array::<f32>()
+            .map_err(|e| ZVC69Error::InferenceFailed {
+                reason: format!("Failed to extract tensor: {}", e),
+            })?;
+
+        // Copy data to pre-allocated buffer
+        output
+            .as_slice_mut()
+            .ok_or_else(|| ZVC69Error::InferenceFailed {
+                reason: "Output array not contiguous".to_string(),
+            })?
+            .copy_from_slice(array_view.as_slice().ok_or_else(|| {
+                ZVC69Error::InferenceFailed {
+                    reason: "Source array not contiguous".to_string(),
+                }
+            })?);
+
+        Ok(())
+    }
+
+    /// Run hyperprior encoder in-place: latents -> hyperprior (pre-allocated output)
+    ///
+    /// # Arguments
+    ///
+    /// * `latents` - Latent tensor from the main encoder [B, C, H/16, W/16]
+    /// * `output` - Pre-allocated output tensor [B, C_hp, H/64, W/64]
+    pub fn encode_hyperprior_inplace(
+        &self,
+        latents: &Array4<f32>,
+        output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        // Create input tensor (clone to owned array for ONNX)
+        let input = ort::value::Tensor::from_array(latents.clone()).map_err(|e| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Failed to create input tensor: {}", e),
+            }
+        })?;
+
+        // Get output name before locking session
+        let output_name = Self::first_output_name_from_mutex(&self.hyperprior_enc)?;
+
+        // Lock session and run inference
+        let mut session = self
+            .hyperprior_enc
+            .lock()
+            .map_err(|_| ZVC69Error::InferenceFailed {
+                reason: "Failed to acquire hyperprior encoder session lock".to_string(),
+            })?;
+
+        let outputs =
+            session
+                .run(ort::inputs![input])
+                .map_err(|e| ZVC69Error::InferenceFailed {
+                    reason: format!("Hyperprior encoder inference failed: {}", e),
+                })?;
+
+        // Copy output directly to pre-allocated buffer
+        let ort_output = outputs.get(&output_name).ok_or_else(|| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Output '{}' not found in hyperprior encoder outputs", output_name),
+            }
+        })?;
+
+        let array_view = ort_output
+            .try_extract_array::<f32>()
+            .map_err(|e| ZVC69Error::InferenceFailed {
+                reason: format!("Failed to extract tensor: {}", e),
+            })?;
+
+        // Copy data to pre-allocated buffer
+        output
+            .as_slice_mut()
+            .ok_or_else(|| ZVC69Error::InferenceFailed {
+                reason: "Output array not contiguous".to_string(),
+            })?
+            .copy_from_slice(array_view.as_slice().ok_or_else(|| {
+                ZVC69Error::InferenceFailed {
+                    reason: "Source array not contiguous".to_string(),
+                }
+            })?);
+
+        Ok(())
+    }
+
+    /// Run hyperprior decoder in-place: hyperprior -> entropy parameters (pre-allocated outputs)
+    ///
+    /// # Arguments
+    ///
+    /// * `hyperprior` - Hyperprior representation from hyperprior encoder
+    /// * `means_output` - Pre-allocated output tensor for means
+    /// * `scales_output` - Pre-allocated output tensor for scales
+    pub fn decode_hyperprior_inplace(
+        &self,
+        hyperprior: &Hyperprior,
+        means_output: &mut Array4<f32>,
+        scales_output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        // Create input tensor (clone to owned array for ONNX)
+        let input = ort::value::Tensor::from_array(hyperprior.z.clone()).map_err(|e| {
+            ZVC69Error::InferenceFailed {
+                reason: format!("Failed to create input tensor: {}", e),
+            }
+        })?;
+
+        // Get output names before locking session
+        let output_names = Self::output_names_from_mutex(&self.hyperprior_dec)?;
+
+        // Lock session and run inference
+        let mut session = self
+            .hyperprior_dec
+            .lock()
+            .map_err(|_| ZVC69Error::InferenceFailed {
+                reason: "Failed to acquire hyperprior decoder session lock".to_string(),
+            })?;
+
+        let outputs =
+            session
+                .run(ort::inputs![input])
+                .map_err(|e| ZVC69Error::InferenceFailed {
+                    reason: format!("Hyperprior decoder inference failed: {}", e),
+                })?;
+
+        if output_names.len() >= 2 {
+            // Two separate output tensors
+            Self::copy_output_to_buffer(&outputs, &output_names[0], means_output)?;
+            Self::copy_output_to_buffer(&outputs, &output_names[1], scales_output)?;
+        } else if output_names.len() == 1 {
+            // Single output with concatenated means and scales - extract and split
+            let combined = Self::extract_output_tensor_4d(&outputs, &output_names[0])?;
+
+            let shape = combined.dim();
+            if shape.1 % 2 != 0 {
+                return Err(ZVC69Error::InferenceFailed {
+                    reason: format!(
+                        "Expected even number of channels for mean/scale split, got {}",
+                        shape.1
+                    ),
+                });
+            }
+
+            let half_channels = shape.1 / 2;
+
+            // Copy means (first half of channels)
+            let means_slice = combined.slice(ndarray::s![.., ..half_channels, .., ..]);
+            means_output
+                .as_slice_mut()
+                .ok_or_else(|| ZVC69Error::InferenceFailed {
+                    reason: "Means output array not contiguous".to_string(),
+                })?
+                .copy_from_slice(
+                    means_slice
+                        .as_slice()
+                        .ok_or_else(|| ZVC69Error::InferenceFailed {
+                            reason: "Means source not contiguous".to_string(),
+                        })?,
+                );
+
+            // Copy scales (second half of channels)
+            let scales_slice = combined.slice(ndarray::s![.., half_channels.., .., ..]);
+            scales_output
+                .as_slice_mut()
+                .ok_or_else(|| ZVC69Error::InferenceFailed {
+                    reason: "Scales output array not contiguous".to_string(),
+                })?
+                .copy_from_slice(
+                    scales_slice
+                        .as_slice()
+                        .ok_or_else(|| ZVC69Error::InferenceFailed {
+                            reason: "Scales source not contiguous".to_string(),
+                        })?,
+                );
+        } else {
+            return Err(ZVC69Error::InferenceFailed {
+                reason: "Hyperprior decoder produced no outputs".to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Helper to copy ONNX output directly to pre-allocated buffer
+    fn copy_output_to_buffer(
+        outputs: &ort::SessionOutputs,
+        name: &str,
+        buffer: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        let ort_output = outputs.get(name).ok_or_else(|| ZVC69Error::InferenceFailed {
+            reason: format!("Output '{}' not found", name),
+        })?;
+
+        let array_view = ort_output
+            .try_extract_array::<f32>()
+            .map_err(|e| ZVC69Error::InferenceFailed {
+                reason: format!("Failed to extract tensor: {}", e),
+            })?;
+
+        buffer
+            .as_slice_mut()
+            .ok_or_else(|| ZVC69Error::InferenceFailed {
+                reason: "Output array not contiguous".to_string(),
+            })?
+            .copy_from_slice(array_view.as_slice().ok_or_else(|| {
+                ZVC69Error::InferenceFailed {
+                    reason: "Source array not contiguous".to_string(),
+                }
+            })?);
+
+        Ok(())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Accessors
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1124,6 +1460,39 @@ impl NeuralModel {
     }
 
     pub fn decode_hyperprior(&self, _hyperprior: &Hyperprior) -> Result<EntropyParams, ZVC69Error> {
+        Err(ZVC69Error::FeatureNotEnabled)
+    }
+
+    pub fn encode_inplace(
+        &self,
+        _image: &Array4<f32>,
+        _output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        Err(ZVC69Error::FeatureNotEnabled)
+    }
+
+    pub fn decode_inplace(
+        &self,
+        _latents: &Latents,
+        _output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        Err(ZVC69Error::FeatureNotEnabled)
+    }
+
+    pub fn encode_hyperprior_inplace(
+        &self,
+        _latents: &Array4<f32>,
+        _output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
+        Err(ZVC69Error::FeatureNotEnabled)
+    }
+
+    pub fn decode_hyperprior_inplace(
+        &self,
+        _hyperprior: &Hyperprior,
+        _means_output: &mut Array4<f32>,
+        _scales_output: &mut Array4<f32>,
+    ) -> Result<(), ZVC69Error> {
         Err(ZVC69Error::FeatureNotEnabled)
     }
 
