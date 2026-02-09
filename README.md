@@ -34,13 +34,19 @@ ZVD is a comprehensive multimedia processing library written in pure Rust, provi
 
 **Patent-Free (Royalty-Free)**
 - ✅ **Opus** - Modern audio codec (encoder/decoder via opus crate)
-- ✅ **Vorbis** - Ogg Vorbis decoder (via Symphonia)
-- ✅ **FLAC** - Lossless audio codec (via Symphonia)
-- ✅ **MP3** - MPEG Audio Layer 3 (decoder via Symphonia, patents expired)
+- ✅ **Vorbis** - Ogg Vorbis encoder/decoder (decoder via Symphonia, encoder via vorbis_rs with aoTuV patches)
+- ✅ **FLAC** - Lossless audio codec (decoder via Symphonia, encoder via flacenc - pure Rust)
+- ✅ **MP3** - MPEG Audio Layer 3 (decoder only via Symphonia, patents expired)
 - ✅ **PCM** - Uncompressed audio (all standard formats)
 
 **Patent-Encumbered (Optional)**
 - ✅ **AAC** - Advanced Audio Coding (decoder via Symphonia)
+
+> **Note on MP3 Encoding**: MP3 encoding is intentionally not supported. While MP3 patents have expired, the encoding format is less efficient than modern alternatives. We recommend:
+> - **Opus** for streaming and interactive applications
+> - **AAC** for broad compatibility
+> - **Vorbis** for open-source projects
+> - **FLAC** for lossless archival
 
 ### 📦 Container Formats
 

@@ -1,0 +1,339 @@
+// ZVD Transcoding Server - Worker Service Protocol
+// This defines the gRPC interface between the coordinator and workers
+
+syntax = "proto3";
+
+package zvd.worker;
+
+// The WorkerService is implemented by the coordinator and called by workers
+service WorkerService {
+    // Register a new worker with the coordinator
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+
+    // Send periodic heartbeat to maintain registration
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+    // Request a job from the coordinator (pull model)
+    rpc GetJob(GetJobRequest) returns (GetJobResponse);
+
+    // Report progress on a running job (streaming)
+    rpc ReportProgress(stream ProgressReport) returns (ProgressAck);
+
+    // Report job completion or failure
+    rpc CompleteJob(JobCompletionRequest) returns (JobCompletionResponse);
+
+    // Unregister worker (graceful shutdown)
+    rpc Unregister(UnregisterRequest) returns (UnregisterResponse);
+}
+
+// Hardware acceleration types supported by a worker
+enum HwAccelType {
+    HW_ACCEL_NONE = 0;
+    HW_ACCEL_VAAPI = 1;
+    HW_ACCEL_NVENC = 2;
+    HW_ACCEL_NVDEC = 3;
+    HW_ACCEL_QSV = 4;
+    HW_ACCEL_VIDEOTOOLBOX = 5;
+    HW_ACCEL_AMF = 6;
+    HW_ACCEL_DXVA2 = 7;
+    HW_ACCEL_D3D11VA = 8;
+    HW_ACCEL_VULKAN = 9;
+}
+
+// Worker capabilities reported during registration
+message WorkerCapabilities {
+    // Unique worker identifier (generated client-side)
+    string worker_id = 1;
+
+    // Hostname for display/logging purposes
+    string hostname = 2;
+
+    // Hardware acceleration capabilities
+    repeated HwAccelType hw_accel = 3;
+
+    // Maximum number of concurrent transcoding jobs
+    uint32 max_concurrent_jobs = 4;
+
+    // Currently running job count
+    uint32 current_jobs = 5;
+
+    // List of supported video codecs (e.g., "h264", "h265", "vp9", "av1")
+    repeated string supported_video_codecs = 6;
+
+    // List of supported audio codecs (e.g., "aac", "opus", "mp3")
+    repeated string supported_audio_codecs = 7;
+
+    // Available memory in bytes
+    uint64 available_memory = 8;
+
+    // Number of CPU cores
+    uint32 cpu_cores = 9;
+
+    // GPU memory in bytes (if applicable)
+    uint64 gpu_memory = 10;
+
+    // Worker version string
+    string version = 11;
+}
+
+// Registration request from worker to coordinator
+message RegisterRequest {
+    WorkerCapabilities capabilities = 1;
+}
+
+// Registration response
+message RegisterResponse {
+    // Whether registration was successful
+    bool success = 1;
+
+    // Error message if registration failed
+    string error = 2;
+
+    // Heartbeat interval in seconds
+    uint32 heartbeat_interval = 3;
+
+    // Session token for subsequent requests
+    string session_token = 4;
+}
+
+// Heartbeat request
+message HeartbeatRequest {
+    // Worker ID
+    string worker_id = 1;
+
+    // Session token from registration
+    string session_token = 2;
+
+    // Current worker status
+    WorkerCapabilities capabilities = 3;
+}
+
+// Heartbeat response
+message HeartbeatResponse {
+    // Whether heartbeat was acknowledged
+    bool acknowledged = 1;
+
+    // Commands from coordinator (e.g., "shutdown", "pause")
+    repeated string commands = 2;
+}
+
+// Job request from worker
+message GetJobRequest {
+    // Worker ID
+    string worker_id = 1;
+
+    // Session token
+    string session_token = 2;
+
+    // Number of jobs the worker can accept (may be > 1)
+    uint32 capacity = 3;
+}
+
+// Transcoding job parameters
+message TranscodeParams {
+    // Video codec to use (empty = copy)
+    string video_codec = 1;
+
+    // Audio codec to use (empty = copy)
+    string audio_codec = 2;
+
+    // Video bitrate in bits per second (0 = auto)
+    uint64 video_bitrate = 3;
+
+    // Audio bitrate in bits per second (0 = auto)
+    uint64 audio_bitrate = 4;
+
+    // Output resolution (e.g., "1920x1080", empty = same as input)
+    string resolution = 5;
+
+    // Frame rate (e.g., "30", "29.97", empty = same as input)
+    string frame_rate = 6;
+
+    // Pixel format (e.g., "yuv420p", empty = auto)
+    string pixel_format = 7;
+
+    // Encoder preset (e.g., "fast", "medium", "slow")
+    string preset = 8;
+
+    // CRF/quality value (0-63, 0 = lossless)
+    uint32 quality = 9;
+
+    // Two-pass encoding
+    bool two_pass = 10;
+
+    // Hardware acceleration preference
+    HwAccelType hw_accel = 11;
+
+    // Additional key-value parameters
+    map<string, string> extra_params = 12;
+
+    // Start time in seconds (for seeking)
+    double start_time = 13;
+
+    // Duration in seconds (0 = full file)
+    double duration = 14;
+
+    // Audio channels (0 = same as input)
+    uint32 audio_channels = 15;
+
+    // Audio sample rate (0 = same as input)
+    uint32 audio_sample_rate = 16;
+}
+
+// A transcoding job
+message TranscodeJob {
+    // Unique job identifier
+    string job_id = 1;
+
+    // Input file path (must be accessible to worker)
+    string input_path = 2;
+
+    // Output file path
+    string output_path = 3;
+
+    // Transcoding parameters
+    TranscodeParams params = 4;
+
+    // Job priority (higher = more important)
+    uint32 priority = 5;
+
+    // Job creation timestamp (Unix millis)
+    int64 created_at = 6;
+
+    // Job timeout in seconds (0 = no timeout)
+    uint32 timeout = 7;
+
+    // Callback URL for completion notification (optional)
+    string callback_url = 8;
+
+    // Metadata for tracking purposes
+    map<string, string> metadata = 9;
+}
+
+// Job response
+message GetJobResponse {
+    // Whether a job is available
+    bool has_job = 1;
+
+    // The job (if available)
+    TranscodeJob job = 2;
+}
+
+// Progress report from worker (streaming)
+message ProgressReport {
+    // Job ID
+    string job_id = 1;
+
+    // Worker ID
+    string worker_id = 2;
+
+    // Progress percentage (0.0 - 100.0)
+    float progress = 3;
+
+    // Current frame number
+    uint64 current_frame = 4;
+
+    // Total frames (if known)
+    uint64 total_frames = 5;
+
+    // Current encoding FPS
+    float fps = 6;
+
+    // Bitrate being achieved
+    uint64 bitrate = 7;
+
+    // Current time position in seconds
+    double time_position = 8;
+
+    // Total duration in seconds
+    double total_duration = 9;
+
+    // Estimated time remaining in seconds
+    double eta = 10;
+
+    // Current pass (for two-pass encoding)
+    uint32 current_pass = 11;
+
+    // Status message
+    string status_message = 12;
+}
+
+// Progress acknowledgment
+message ProgressAck {
+    // Whether progress was received
+    bool received = 1;
+
+    // Command from coordinator (e.g., "cancel")
+    string command = 2;
+}
+
+// Job completion status
+enum JobStatus {
+    JOB_STATUS_UNKNOWN = 0;
+    JOB_STATUS_COMPLETED = 1;
+    JOB_STATUS_FAILED = 2;
+    JOB_STATUS_CANCELLED = 3;
+}
+
+// Job completion request
+message JobCompletionRequest {
+    // Job ID
+    string job_id = 1;
+
+    // Worker ID
+    string worker_id = 2;
+
+    // Completion status
+    JobStatus status = 3;
+
+    // Error message (if failed)
+    string error = 4;
+
+    // Output file path (if completed)
+    string output_path = 5;
+
+    // Output file size in bytes
+    uint64 output_size = 6;
+
+    // Encoding duration in milliseconds
+    uint64 encoding_duration_ms = 7;
+
+    // Output video bitrate achieved
+    uint64 output_video_bitrate = 8;
+
+    // Output audio bitrate achieved
+    uint64 output_audio_bitrate = 9;
+
+    // Output resolution
+    string output_resolution = 10;
+
+    // Output duration in seconds
+    double output_duration = 11;
+}
+
+// Job completion response
+message JobCompletionResponse {
+    // Whether completion was acknowledged
+    bool acknowledged = 1;
+
+    // Message from coordinator
+    string message = 2;
+}
+
+// Unregister request (graceful shutdown)
+message UnregisterRequest {
+    // Worker ID
+    string worker_id = 1;
+
+    // Session token
+    string session_token = 2;
+
+    // Reason for unregistration
+    string reason = 3;
+}
+
+// Unregister response
+message UnregisterResponse {
+    // Whether unregistration was successful
+    bool success = 1;
+}

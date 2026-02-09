@@ -4,6 +4,11 @@
 //! released as open source by Google. It's widely used in WebM containers
 //! and WebRTC.
 //!
+//! ## Features
+//!
+//! - Enable `vp8-codec` for VP8 support
+//! - Enable `vp8-libvpx` for full VP8 encode/decode via libvpx
+//!
 //! ## License
 //! VP8 is covered by a BSD-style license and is royalty-free.
 //! Google has released all patents for free use.
@@ -16,4 +21,4 @@ pub mod encoder;
 #[cfg(feature = "vp8-codec")]
 pub use decoder::Vp8Decoder;
 #[cfg(feature = "vp8-codec")]
-pub use encoder::Vp8Encoder;
+pub use encoder::{Vp8Encoder, Vp8EncoderConfig, Vp8RateControl};

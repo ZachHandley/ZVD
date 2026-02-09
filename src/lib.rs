@@ -28,6 +28,13 @@ pub mod swresample;
 pub mod swscale;
 pub mod util;
 
+/// Distributed transcoding server mode
+///
+/// This module provides a coordinator/worker architecture for distributed
+/// transcoding, similar to rffmpeg. Enable with the "server" feature.
+#[cfg(feature = "server")]
+pub mod server;
+
 pub use error::{Error, Result};
 
 /// ZVD version information

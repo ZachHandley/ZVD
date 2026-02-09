@@ -519,6 +519,24 @@ impl AacDecoder {
     }
 }
 
+/// Create an AAC decoder with default parameters
+///
+/// This is a convenience factory function.
+pub fn create_decoder(sample_rate: u32, channels: u16) -> Result<AacDecoder> {
+    AacDecoder::new(sample_rate, channels)
+}
+
+/// Create an AAC decoder with extradata (AudioSpecificConfig)
+///
+/// The extradata should contain the AAC AudioSpecificConfig.
+pub fn create_decoder_with_extradata(
+    sample_rate: u32,
+    channels: u16,
+    extradata: &[u8],
+) -> Result<AacDecoder> {
+    AacDecoder::with_extradata(sample_rate, channels, extradata)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

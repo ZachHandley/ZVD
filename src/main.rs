@@ -110,6 +110,126 @@ enum Commands {
         #[arg(long)]
         demuxers: bool,
     },
+
+    /// Start a transcoding coordinator server
+    #[cfg(feature = "server")]
+    Coordinator {
+        /// REST API port
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+
+        /// gRPC port for worker communication
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+
+        /// Bind address
+        #[arg(long, default_value = "0.0.0.0")]
+        bind: String,
+
+        /// Heartbeat timeout in seconds
+        #[arg(long, default_value = "60")]
+        heartbeat_timeout: u64,
+
+        /// Maximum queue size
+        #[arg(long, default_value = "10000")]
+        max_queue: usize,
+    },
+
+    /// Start a transcoding worker daemon
+    #[cfg(feature = "server")]
+    Worker {
+        /// Coordinator gRPC address
+        #[arg(short, long, default_value = "http://localhost:50051")]
+        coordinator: String,
+
+        /// Maximum concurrent jobs
+        #[arg(short, long, default_value = "1")]
+        jobs: u32,
+
+        /// Heartbeat interval in seconds
+        #[arg(long, default_value = "30")]
+        heartbeat_interval: u64,
+
+        /// Job poll interval in seconds
+        #[arg(long, default_value = "5")]
+        poll_interval: u64,
+
+        /// Worker hostname (auto-detected if not provided)
+        #[arg(long)]
+        hostname: Option<String>,
+    },
+
+    /// Submit a transcode job to the coordinator
+    #[cfg(feature = "server")]
+    Dispatch {
+        /// Coordinator REST API URL
+        #[arg(short, long, default_value = "http://localhost:8080")]
+        coordinator: String,
+
+        /// Input file path
+        #[arg(short, long)]
+        input: String,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: String,
+
+        /// Video codec (e.g., h264, h265, vp9, av1)
+        #[arg(long, value_name = "CODEC")]
+        vcodec: Option<String>,
+
+        /// Audio codec (e.g., aac, opus, mp3)
+        #[arg(long, value_name = "CODEC")]
+        acodec: Option<String>,
+
+        /// Video bitrate (e.g., 5M, 2000k)
+        #[arg(long, value_name = "BITRATE")]
+        vbitrate: Option<String>,
+
+        /// Audio bitrate (e.g., 128k, 192k)
+        #[arg(long, value_name = "BITRATE")]
+        abitrate: Option<String>,
+
+        /// Output resolution (e.g., 1920x1080)
+        #[arg(long, value_name = "WxH")]
+        resolution: Option<String>,
+
+        /// Quality/CRF value (0-63, lower is better)
+        #[arg(long)]
+        quality: Option<u32>,
+
+        /// Encoder preset (e.g., fast, medium, slow)
+        #[arg(long)]
+        preset: Option<String>,
+
+        /// Job priority (low, normal, high, critical)
+        #[arg(long, default_value = "normal")]
+        priority: String,
+
+        /// Wait for job completion
+        #[arg(long)]
+        wait: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Parse FFmpeg-style arguments and submit as a job
+    #[cfg(feature = "server")]
+    Ffmpeg {
+        /// Coordinator REST API URL
+        #[arg(long, default_value = "http://localhost:8080")]
+        coordinator: String,
+
+        /// FFmpeg-style arguments (everything after --)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+
+        /// Wait for job completion
+        #[arg(long)]
+        wait: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -165,6 +285,59 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Formats { muxers, demuxers } => {
             cmd_formats(muxers, demuxers)?;
+        }
+
+        #[cfg(feature = "server")]
+        Commands::Coordinator {
+            port,
+            grpc_port,
+            bind,
+            heartbeat_timeout,
+            max_queue,
+        } => {
+            cmd_coordinator(port, grpc_port, bind, heartbeat_timeout, max_queue)?;
+        }
+
+        #[cfg(feature = "server")]
+        Commands::Worker {
+            coordinator,
+            jobs,
+            heartbeat_interval,
+            poll_interval,
+            hostname,
+        } => {
+            cmd_worker(coordinator, jobs, heartbeat_interval, poll_interval, hostname)?;
+        }
+
+        #[cfg(feature = "server")]
+        Commands::Dispatch {
+            coordinator,
+            input,
+            output,
+            vcodec,
+            acodec,
+            vbitrate,
+            abitrate,
+            resolution,
+            quality,
+            preset,
+            priority,
+            wait,
+            json,
+        } => {
+            cmd_dispatch(
+                coordinator, input, output, vcodec, acodec, vbitrate, abitrate,
+                resolution, quality, preset, priority, wait, json,
+            )?;
+        }
+
+        #[cfg(feature = "server")]
+        Commands::Ffmpeg {
+            coordinator,
+            args,
+            wait,
+        } => {
+            cmd_ffmpeg(coordinator, args, wait)?;
         }
     }
 
@@ -891,4 +1064,320 @@ fn cmd_formats(muxers: bool, demuxers: bool) -> anyhow::Result<()> {
     println!("\nNote: This is a subset of supported formats.");
     println!("Full format implementations are in progress.");
     Ok(())
+}
+
+// ============================================================================
+// Server Mode Commands (behind "server" feature)
+// ============================================================================
+
+#[cfg(feature = "server")]
+fn cmd_coordinator(
+    port: u16,
+    grpc_port: u16,
+    bind: String,
+    heartbeat_timeout: u64,
+    max_queue: usize,
+) -> anyhow::Result<()> {
+    use zvd_lib::server::{Coordinator, CoordinatorConfig};
+
+    let config = CoordinatorConfig {
+        rest_port: port,
+        grpc_port,
+        bind_addr: bind,
+        heartbeat_timeout,
+        max_queue_size: max_queue,
+        ..Default::default()
+    };
+
+    println!("Starting ZVD Transcoding Coordinator");
+    println!("  REST API: http://{}:{}", config.bind_addr, config.rest_port);
+    println!("  gRPC:     {}:{}", config.bind_addr, config.grpc_port);
+    println!();
+
+    // Create async runtime and run coordinator
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let coordinator = Coordinator::new(config);
+        coordinator.run().await
+    })
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+fn cmd_worker(
+    coordinator: String,
+    jobs: u32,
+    heartbeat_interval: u64,
+    poll_interval: u64,
+    hostname: Option<String>,
+) -> anyhow::Result<()> {
+    use zvd_lib::server::{Worker, WorkerConfig};
+
+    let config = WorkerConfig {
+        coordinator_addr: coordinator.clone(),
+        max_concurrent_jobs: jobs,
+        heartbeat_interval,
+        poll_interval,
+        hostname,
+    };
+
+    println!("Starting ZVD Transcoding Worker");
+    println!("  Coordinator: {}", coordinator);
+    println!("  Max concurrent jobs: {}", jobs);
+    println!();
+
+    // Create async runtime and run worker
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let worker = Worker::new(config);
+        worker.run().await
+    })
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+fn cmd_dispatch(
+    coordinator: String,
+    input: String,
+    output: String,
+    vcodec: Option<String>,
+    acodec: Option<String>,
+    vbitrate: Option<String>,
+    abitrate: Option<String>,
+    resolution: Option<String>,
+    quality: Option<u32>,
+    preset: Option<String>,
+    priority: String,
+    wait: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    use std::time::Duration;
+    use zvd_lib::server::{
+        DispatchClient, DispatchConfig, TranscodeRequestBuilder,
+        protocol::JobPriority,
+    };
+
+    // Parse priority
+    let job_priority = match priority.to_lowercase().as_str() {
+        "low" => JobPriority::Low,
+        "normal" => JobPriority::Normal,
+        "high" => JobPriority::High,
+        "critical" => JobPriority::Critical,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid priority: {}. Use low, normal, high, or critical",
+                priority
+            ));
+        }
+    };
+
+    // Build request
+    let mut builder = TranscodeRequestBuilder::new(&input, &output)
+        .priority(job_priority);
+
+    if let Some(codec) = vcodec {
+        builder = builder.video_codec(codec);
+    }
+    if let Some(codec) = acodec {
+        builder = builder.audio_codec(codec);
+    }
+    if let Some(bitrate) = vbitrate {
+        let parsed = parse_bitrate_arg(&bitrate)?;
+        builder = builder.video_bitrate(parsed);
+    }
+    if let Some(bitrate) = abitrate {
+        let parsed = parse_bitrate_arg(&bitrate)?;
+        builder = builder.audio_bitrate(parsed);
+    }
+    if let Some(res) = resolution {
+        let (w, h) = parse_resolution_arg(&res)?;
+        builder = builder.resolution(w, h);
+    }
+    if let Some(q) = quality {
+        builder = builder.quality(q);
+    }
+    if let Some(p) = preset {
+        builder = builder.preset(p);
+    }
+
+    let request = builder.build();
+
+    // Create client
+    let config = DispatchConfig {
+        coordinator_url: coordinator.clone(),
+        ..Default::default()
+    };
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let client = DispatchClient::new(config)
+            .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
+
+        // Health check first
+        if !client.health_check().await.unwrap_or(false) {
+            return Err(anyhow::anyhow!(
+                "Cannot connect to coordinator at {}",
+                coordinator
+            ));
+        }
+
+        // Submit job
+        let response = client
+            .submit_job(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to submit job: {}", e))?;
+
+        if json {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        } else {
+            println!("Job submitted: {}", response.id);
+            println!("Status: {:?}", response.status.state);
+        }
+
+        // Wait for completion if requested
+        if wait {
+            if !json {
+                println!("\nWaiting for job completion...");
+            }
+
+            let final_status = client
+                .wait_for_job(response.id, Duration::from_secs(2), None)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to wait for job: {}", e))?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&final_status)?);
+            } else {
+                println!("\nJob completed:");
+                println!("  Status: {:?}", final_status.state);
+            }
+        }
+
+        Ok(())
+    })
+}
+
+#[cfg(feature = "server")]
+fn cmd_ffmpeg(
+    coordinator: String,
+    args: Vec<String>,
+    wait: bool,
+) -> anyhow::Result<()> {
+    use std::time::Duration;
+    use zvd_lib::server::{
+        DispatchClient, DispatchConfig,
+        ffcompat::parse_ffmpeg_args,
+    };
+
+    if args.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No FFmpeg arguments provided. Usage: zvd ffmpeg -- -i input.mp4 -c:v libx264 output.mp4"
+        ));
+    }
+
+    // Parse FFmpeg-style arguments
+    let parsed = parse_ffmpeg_args(&args)
+        .map_err(|e| anyhow::anyhow!("Failed to parse arguments: {}", e))?;
+
+    let request = parsed
+        .into_request()
+        .map_err(|e| anyhow::anyhow!("Failed to create request: {}", e))?;
+
+    println!("Parsed transcode request:");
+    println!("  Input: {}", request.input);
+    println!("  Output: {}", request.output);
+    if let Some(ref v) = request.params.video_codec {
+        println!("  Video codec: {}", v);
+    }
+    if let Some(ref a) = request.params.audio_codec {
+        println!("  Audio codec: {}", a);
+    }
+
+    // Create client
+    let config = DispatchConfig {
+        coordinator_url: coordinator.clone(),
+        ..Default::default()
+    };
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let client = DispatchClient::new(config)
+            .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
+
+        // Health check
+        if !client.health_check().await.unwrap_or(false) {
+            return Err(anyhow::anyhow!(
+                "Cannot connect to coordinator at {}",
+                coordinator
+            ));
+        }
+
+        // Submit job
+        let response = client
+            .submit_job(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to submit job: {}", e))?;
+
+        println!("\nJob submitted: {}", response.id);
+
+        // Wait if requested
+        if wait {
+            println!("Waiting for job completion...");
+
+            let final_status = client
+                .wait_for_job(response.id, Duration::from_secs(2), None)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to wait for job: {}", e))?;
+
+            println!("Job completed: {:?}", final_status.state);
+        }
+
+        Ok(())
+    })
+}
+
+#[cfg(feature = "server")]
+fn parse_bitrate_arg(value: &str) -> anyhow::Result<u64> {
+    let value = value.trim();
+
+    let (num_str, multiplier) = if value.ends_with('k') || value.ends_with('K') {
+        (&value[..value.len() - 1], 1_000u64)
+    } else if value.ends_with('M') || value.ends_with('m') {
+        (&value[..value.len() - 1], 1_000_000u64)
+    } else if value.ends_with('G') || value.ends_with('g') {
+        (&value[..value.len() - 1], 1_000_000_000u64)
+    } else {
+        (value, 1u64)
+    };
+
+    let num: f64 = num_str
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid bitrate: {}", value))?;
+
+    Ok((num * multiplier as f64) as u64)
+}
+
+#[cfg(feature = "server")]
+fn parse_resolution_arg(value: &str) -> anyhow::Result<(u32, u32)> {
+    let parts: Vec<&str> = value.split(|c| c == 'x' || c == ':').collect();
+
+    if parts.len() != 2 {
+        return Err(anyhow::anyhow!(
+            "Invalid resolution: {}. Use WxH format (e.g., 1920x1080)",
+            value
+        ));
+    }
+
+    let width: u32 = parts[0]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid width in resolution: {}", value))?;
+    let height: u32 = parts[1]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid height in resolution: {}", value))?;
+
+    Ok((width, height))
 }

@@ -44,8 +44,8 @@ pub mod gop;
 pub mod multipass;
 
 pub use av1::{Av1Decoder, Av1Encoder};
-pub use decoder::{create_decoder, Decoder, DecoderContext};
-pub use encoder::{create_audio_encoder, create_encoder, Encoder, EncoderContext};
+pub use decoder::{create_decoder, create_decoder_with_hw, list_hw_decoders, Decoder, DecoderContext, HwDecoderPreference};
+pub use encoder::{create_audio_encoder, create_audio_encoder_ext, create_encoder, create_encoder_with_hw, list_hw_encoders, Encoder, EncoderContext, HwEncoderPreference};
 pub use frame::{AudioFrame, Frame, PictureType, VideoFrame};
 pub use pcm::{PcmConfig, PcmDecoder, PcmEncoder};
 
@@ -59,17 +59,24 @@ pub use aac::{AacDecoder, AacProfile};
 pub use opus::{OpusDecoder, OpusEncoder};
 
 pub use flac::FlacDecoder;
+#[cfg(feature = "flac-encoder")]
+pub use flac::{FlacEncoder, FlacEncoderConfig};
 pub use mp3::Mp3Decoder;
 pub use vorbis::VorbisDecoder;
+#[cfg(feature = "vorbis-encoder")]
+pub use vorbis::{VorbisEncoder, VorbisEncoderConfig, VorbisEncodingMode};
 
 #[cfg(feature = "h265")]
 pub use h265::H265Decoder;
 
 #[cfg(feature = "vp8-codec")]
-pub use vp8::{Vp8Decoder, Vp8Encoder};
+pub use vp8::{Vp8Decoder, Vp8Encoder, Vp8EncoderConfig, Vp8RateControl};
 
 #[cfg(feature = "vp9-codec")]
-pub use vp9::{Vp9Decoder, Vp9Encoder};
+pub use vp9::{
+    Vp9AqMode, Vp9Decoder, Vp9Encoder, Vp9EncoderConfig, Vp9EncodingPass, Vp9Profile,
+    Vp9RateControl, Vp9TuneContent,
+};
 
 pub use dnxhd::{DnxhdDecoder, DnxhdEncoder, DnxhdProfile};
 pub use prores::{ProResDecoder, ProResEncoder, ProResProfile};

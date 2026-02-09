@@ -83,7 +83,7 @@ impl AviStreamHeader {
         }
     }
 
-    pub fn audio(codec_tag: u16, sample_rate: u32, channels: u16) -> Self {
+    pub fn audio(_codec_tag: u16, sample_rate: u32, channels: u16) -> Self {
         AviStreamHeader {
             fcc_type: *b"auds",
             fcc_handler: [0; 4],

@@ -102,16 +102,28 @@ mp4 = { version = "0.14", optional = true }
 # OpenH264 from Cisco - BSD 2-Clause license for code
 # Binary usage covered by Cisco's patent license
 # See CODEC_LICENSES.md for details
-openh264 = { version = "0.6", optional = true }
+# Version 0.9.1 fixes CVE-2025-27091 (heap overflow in decoding functions)
+# SECURITY: Must be >= 0.9.1 for the CVE-2025-27091 fix
+openh264 = { version = "0.9.1", optional = true }
 
 # Opus codec (royalty-free, patent-free)
 # Opus Interactive Audio Codec - BSD license
 opus = { version = "0.3", optional = true }
 
+# FLAC encoder (pure Rust, royalty-free)
+# Free Lossless Audio Codec encoder - Apache-2.0/MIT license
+flacenc = { version = "0.4", optional = true }
+
+# Vorbis encoder (bindings to aoTuV-patched libvorbis, royalty-free)
+# High-quality Ogg Vorbis encoder with aoTuV and Lancer optimizations - BSD-3-Clause
+# System requirement: libvorbis, libogg must be installed (apt: libvorbis-dev libogg-dev)
+vorbis_rs = { version = "0.5", optional = true }
+
 # VP8/VP9 codecs (royalty-free)
-# libvpx bindings - BSD license (optional, we have pure Rust implementations)
+# libvpx bindings - MPL-2.0 license
 # System requirement: libvpx must be installed (apt: libvpx-dev, brew: libvpx)
-vpx-sys = { version = "0.1", optional = true }
+# Using libvpx-sys for complete FFI bindings to libvpx
+libvpx-sys = { version = "1.4", optional = true }
 
 # Color space conversions
 rgb = "0.8"
@@ -139,19 +151,67 @@ ort = { version = "2.0.0-rc", optional = true }
 # byteorder - Binary data serialization for bitstream handling
 byteorder = "1.5"
 
+# ========================
+# Hardware Acceleration Dependencies
+# ========================
+
+# VAAPI - Video Acceleration API (Linux)
+# Safe Rust bindings to libva for Intel/AMD GPU acceleration
+# System requirement: libva-dev (apt: libva-dev, fedora: libva-devel)
+# NOTE: libva crate is currently not available on crates.io, VAAPI support is stubbed
+# libva = { version = "0.0", optional = true }
+# libva-sys = { version = "0.0", optional = true }
+
+# DRM - Direct Rendering Manager for VAAPI device access
+drm = { version = "0.12", optional = true }
+
+# CUDA Runtime for NVIDIA GPU operations
+# Used for NVENC/NVDEC memory management
+# Using cuda-version-from-build-system to auto-detect installed CUDA version
+cudarc = { version = "0.12", optional = true, features = ["cuda-version-from-build-system"] }
+
+# Server mode dependencies (cross-platform)
+axum = { version = "0.7", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+uuid = { version = "1.11", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json"] }
+hostname = "0.4"
+futures = "0.3"
+tokio-stream = "0.1"
+async-stream = "0.3"
+shell-words = "1.1"
+num_cpus = "1.16"
+
+# Core Foundation for macOS VideoToolbox
+# Used for CVPixelBuffer and CoreMedia types
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+[build-dependencies]
+tonic-build = "0.12"
+protobuf-src = "2.1"
+
 [features]
 # Default features - only patent-free, royalty-free codecs
 default = []
 
 # Patent-free audio codecs
 opus-codec = ["opus"]
+flac-encoder = ["flacenc"]
+vorbis-encoder = ["vorbis_rs"]
 
 # Patent-free video codecs
 # Pure Rust implementations are always available; vpx-sys adds libvpx bindings
 vp8-codec = []
 vp9-codec = []
-vp8-libvpx = ["vpx-sys"]
-vp9-libvpx = ["vpx-sys"]
+vp8-libvpx = ["libvpx-sys"]
+vp9-libvpx = ["libvpx-sys"]
 
 # Optional patent-encumbered codec support
 # Users must acknowledge patent licensing requirements (see CODEC_LICENSES.md)
@@ -165,10 +225,35 @@ webm-support = ["mkv-element"]
 # Enables GPU-accelerated neural video compression via ONNX Runtime
 zvc69 = ["ort"]
 
+# ========================
+# Hardware Acceleration Features
+# ========================
+
+# VAAPI - Linux hardware acceleration via VA-API (Intel/AMD GPUs)
+# Requires libva-dev and appropriate driver (intel-media-driver or mesa)
+# NOTE: Stubbed until libva crate is available on crates.io
+vaapi = ["drm"]
+
+# NVENC/NVDEC - NVIDIA hardware acceleration
+# Requires NVIDIA GPU with NVENC support and CUDA toolkit
+nvenc = ["cudarc"]
+
+# Intel QSV - Intel Quick Sync Video (uses VA-API on Linux)
+# Requires Intel GPU and oneVPL/libmfx runtime
+qsv = []
+
+# VideoToolbox - macOS/iOS hardware acceleration
+# Always available on Apple platforms via system frameworks
+videotoolbox = []
+
 # Convenience features
-all-free-codecs = ["opus-codec", "vp8-codec", "vp9-codec"]
+all-free-codecs = ["opus-codec", "flac-encoder", "vorbis-encoder", "vp8-codec", "vp9-codec"]
 all-containers = ["mp4-support", "webm-support"]
 all-codecs = ["h264", "h265", "aac", "all-containers", "all-free-codecs"]
+all-hwaccel = ["vaapi", "nvenc", "qsv", "videotoolbox"]
+
+# Server mode - distributed transcoding
+server = []
 
 [dev-dependencies]
 criterion = "0.5"
